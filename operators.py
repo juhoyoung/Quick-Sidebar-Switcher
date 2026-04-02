@@ -3,46 +3,78 @@ import bpy
 from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty
 
-def get_visible_sidebar_tabs(context, sort_order='ALPHABETICAL'):
+# 단축키 실행 시점의 탭 목록을 저장할 전역 리스트
+CURRENT_TABS = []
+
+def update_current_tabs(context):
+    """단축키 실행 시점에서 N패널 탭 목록을 다시 리로드하여 캐싱합니다."""
+    global CURRENT_TABS
+    CURRENT_TABS.clear()
 
     tabs_dict = {}
-    
+
+    # 현재 컨텍스트에서 UI(N패널) 영역 찾기
+    ui_region = None
+    if context.area:
+        ui_region = next((r for r in context.area.regions if r.type == 'UI'), None)
+
     for panel_cls in bpy.types.Panel.__subclasses__():
         if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
-           getattr(panel_cls, "bl_region_type", None) == 'UI':
+                getattr(panel_cls, "bl_region_type", None) == 'UI':
+
+            is_visible = True
             if hasattr(panel_cls, 'poll'):
                 try:
-                    if not panel_cls.poll(context):
-                        continue
-                except:
-                    pass  
-            
+                    # 1차 시도: 현재 컨텍스트로 활성화 여부(poll) 확인
+                    is_visible = panel_cls.poll(context)
+                except Exception:
+                    is_visible = False
+
+                # 2차 시도: 마우스가 3D Viewport 메인 화면에 있을 경우 poll()이 실패하는 것을 방지하기 위해
+                # 임시로 UI(N패널) 영역 컨텍스트로 오버라이드하여 다시 검사
+                if not is_visible and ui_region and hasattr(context, "temp_override"):
+                    try:
+                        with context.temp_override(region=ui_region):
+                            is_visible = panel_cls.poll(context)
+                    except Exception:
+                        is_visible = False
+
+            if not is_visible:
+                continue
+
             category = getattr(panel_cls, "bl_category", "Unknown")
             order = getattr(panel_cls, "bl_order", 0)
-            
+
             if category not in tabs_dict or order < tabs_dict[category]:
                 tabs_dict[category] = order
-    
-    if sort_order == 'SIDEBAR':
-        return [cat for cat, _ in sorted(tabs_dict.items(), key=lambda x: x[1])]
-    else:
-        return sorted(tabs_dict.keys())
 
-
-def get_tab_enum_items(self, context):
-    """Generate enum items for tabs"""
     try:
         prefs = context.preferences.addons[__package__].preferences
         sort_order = prefs.tab_sort_order
     except:
         sort_order = 'ALPHABETICAL'
-    
-    tabs = get_visible_sidebar_tabs(context, sort_order)
-    
+
+    if sort_order == 'SIDEBAR':
+        sorted_tabs = [cat for cat, _ in sorted(tabs_dict.items(), key=lambda x: x[1])]
+    else:
+        sorted_tabs = sorted(tabs_dict.keys())
+
+    CURRENT_TABS.extend(sorted_tabs)
+
+
+def get_visible_sidebar_tabs(context, sort_order='ALPHABETICAL'):
+    """캐싱된 탭 목록 반환"""
+    if not CURRENT_TABS:
+        update_current_tabs(context)
+    return CURRENT_TABS
+
+
+def get_tab_enum_items(self, context):
+    """Generate enum items for tabs"""
     items = []
-    for i, tab in enumerate(tabs):
+    for i, tab in enumerate(CURRENT_TABS):
         items.append((tab, tab, "", i))
-    
+
     return items if items else [('NONE', 'No Tabs', '', 0)]
 
 
@@ -51,47 +83,45 @@ class VIEW3D_OT_switch_sidebar_tab(Operator):
     bl_idname = "view3d.switch_sidebar_tab"
     bl_label = "Switch Sidebar Tab"
     bl_options = set()
-    
+
     tab_name: StringProperty()
-    
+
     def execute(self, context):
         area = context.area
-        
+
         if not area or area.type != 'VIEW_3D':
             area = next((a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
-        
+
         if not area:
             return {'CANCELLED'}
-        
+
         space = area.spaces.active
-        
         was_closed = not space.show_region_ui
-        
         tab_name = self.tab_name
-        
+
         if was_closed:
             space.show_region_ui = True
-            
+
             def switch_delayed(area_ref, tab):
                 def inner():
                     region = next((r for r in area_ref.regions if r.type == 'UI'), None)
                     if not region:
                         return None
-                    
+
                     try:
                         region.active_panel_category = tab
                     except (TypeError, AttributeError):
                         pass
-                    
+
                     area_ref.tag_redraw()
                     return None
                 return inner
-            
+
             bpy.app.timers.register(switch_delayed(area, tab_name), first_interval=0.1)
             return {'FINISHED'}
-        
+
         return self.switch_tab_now(area, tab_name)
-    
+
     def switch_tab_now(self, area, tab_name):
         region = next((r for r in area.regions if r.type == 'UI'), None)
         if not region:
@@ -104,15 +134,17 @@ class VIEW3D_OT_switch_sidebar_tab(Operator):
             return {'CANCELLED'}
 
         area.tag_redraw()
-        return {'FINISHED'}  
+        return {'FINISHED'}
 
 
 class VIEW3D_OT_sidebar_tab_menu(Operator):
     """Open a popup menu to select a sidebar tab"""
     bl_idname = "view3d.sidebar_tab_menu"
     bl_label = "Select Sidebar Tab"
-    
+
     def invoke(self, context, event):
+        # 단축키 실행 시점에 강제로 탭 목록을 갱신합니다.
+        update_current_tabs(context)
         bpy.ops.wm.call_menu(name="VIEW3D_MT_sidebar_tab_menu")
         return {'FINISHED'}
 
@@ -123,31 +155,30 @@ class VIEW3D_OT_sidebar_tab_search(Operator):
     bl_label = "Search Sidebar Tabs"
     bl_options = set()
     bl_property = "tab_enum"
-    
+
     tab_enum: EnumProperty(
         name="Tab",
         description="Select a sidebar tab",
         items=get_tab_enum_items,
     )
-    
+
     @classmethod
     def poll(cls, context):
         return context.area and context.area.type == 'VIEW_3D'
-    
+
     def execute(self, context):
         if self.tab_enum and self.tab_enum != 'NONE':
             area = context.area
             if not area or area.type != 'VIEW_3D':
                 area = next((a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
-            
+
             if not area:
                 return {'CANCELLED'}
-            
+
             space = area.spaces.active
             was_closed = not space.show_region_ui
-            
             selected_tab = self.tab_enum
-            
+
             if was_closed:
                 space.show_region_ui = True
                 def switch_after_open(area_ref, tab_name):
@@ -161,7 +192,7 @@ class VIEW3D_OT_sidebar_tab_search(Operator):
                                 pass
                         return None
                     return inner
-                
+
                 bpy.app.timers.register(switch_after_open(area, selected_tab), first_interval=0.1)
             else:
                 region = next((r for r in area.regions if r.type == 'UI'), None)
@@ -171,9 +202,9 @@ class VIEW3D_OT_sidebar_tab_search(Operator):
                         area.tag_redraw()
                     except:
                         pass
-        
+
         return {'FINISHED'}
-    
+
     def invoke(self, context, event):
         context.window_manager.invoke_search_popup(self)
         return {'CANCELLED'}
