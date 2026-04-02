@@ -1,7 +1,7 @@
 # preferences.py
 import bpy
-from bpy.types import AddonPreferences, Operator
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
+from bpy.types import AddonPreferences, Operator, PropertyGroup
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty
 
 import bpy.utils.previews
 try:
@@ -10,19 +10,62 @@ except ImportError:
     rna_keymap_ui = None
 
 
+class SidebarTabFilterItem(PropertyGroup):
+    name: StringProperty()
+    use: BoolProperty(default=False)
+
+
+class PREFERENCES_OT_refresh_tab_filters(Operator):
+    """Fetch currently available sidebar tabs"""
+    bl_idname = "preferences.refresh_tab_filters"
+    bl_label = "Fetch Current Tabs"
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+
+        # 현재 N패널에 존재하는 모든 탭 카테고리 수집
+        tabs_set = set()
+        for panel_cls in bpy.types.Panel.__subclasses__():
+            if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
+                    getattr(panel_cls, "bl_region_type", None) == 'UI':
+                cat = getattr(panel_cls, "bl_category", "Unknown")
+                tabs_set.add(cat)
+
+        # 기존 목록에 없는 새로운 탭만 추가
+        existing_tabs = {item.name for item in prefs.filter_tabs}
+        for tab in sorted(tabs_set):
+            if tab not in existing_tabs:
+                item = prefs.filter_tabs.add()
+                item.name = tab
+                item.use = False
+
+        return {'FINISHED'}
+
+
+class PREFERENCES_OT_clear_tab_filters(Operator):
+    """Clear all items in the filter list"""
+    bl_idname = "preferences.clear_tab_filters"
+    bl_label = "Clear List"
+
+    def execute(self, context):
+        prefs = context.preferences.addons[__package__].preferences
+        prefs.filter_tabs.clear()
+        return {'FINISHED'}
+
+
 class PREFERENCES_OT_capture_keymap(Operator):
     """Click and press a key combination to set the shortcut"""
     bl_idname = "preferences.capture_keymap"
     bl_label = "Capture Keymap"
-    
+
     current_key: StringProperty(default="Press a key combination...")
-    
+
     def modal(self, context, event):
         prefs = context.preferences.addons[__package__].preferences
-        
-        if event.type not in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 
+
+        if event.type not in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE',
                               'TIMER', 'TIMER_REPORT', 'TIMERREGION'}:
-            
+
             shortcut_display = ""
             if event.ctrl:
                 shortcut_display += "Ctrl+"
@@ -30,7 +73,7 @@ class PREFERENCES_OT_capture_keymap(Operator):
                 shortcut_display += "Shift+"
             if event.alt:
                 shortcut_display += "Alt+"
-            
+
             if event.type not in {'LEFT_CTRL', 'RIGHT_CTRL',
                                   'LEFT_SHIFT', 'RIGHT_SHIFT',
                                   'LEFT_ALT', 'RIGHT_ALT',
@@ -38,14 +81,14 @@ class PREFERENCES_OT_capture_keymap(Operator):
                 shortcut_display += event.type
             elif shortcut_display:
                 shortcut_display = shortcut_display[:-1]
-            
+
             self.current_key = shortcut_display if shortcut_display else "Press a key combination..."
             prefs.current_capturing_key = self.current_key
-            
+
             for area in context.screen.areas:
                 if area.type == 'PREFERENCES':
                     area.tag_redraw()
-        
+
         if event.type == 'ESC' and event.value == 'PRESS':
             prefs.is_capturing = False
             prefs.current_capturing_key = ""
@@ -53,43 +96,43 @@ class PREFERENCES_OT_capture_keymap(Operator):
                 if area.type == 'PREFERENCES':
                     area.tag_redraw()
             return {'CANCELLED'}
-        
-        if event.value == 'PRESS' and event.type not in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 
-                                                          'TIMER', 'TIMER_REPORT', 'TIMERREGION',
-                                                          'LEFT_CTRL', 'RIGHT_CTRL',
-                                                          'LEFT_SHIFT', 'RIGHT_SHIFT',
-                                                          'LEFT_ALT', 'RIGHT_ALT',
-                                                          'OSKEY', 'ESC'}:
-            
+
+        if event.value == 'PRESS' and event.type not in {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE',
+                                                         'TIMER', 'TIMER_REPORT', 'TIMERREGION',
+                                                         'LEFT_CTRL', 'RIGHT_CTRL',
+                                                         'LEFT_SHIFT', 'RIGHT_SHIFT',
+                                                         'LEFT_ALT', 'RIGHT_ALT',
+                                                         'OSKEY', 'ESC'}:
+
             prefs.shortcut_key = event.type
             prefs.use_ctrl = event.ctrl
             prefs.use_shift = event.shift
             prefs.use_alt = event.alt
             prefs.is_capturing = False
             prefs.current_capturing_key = ""
-            
+
             from . import keymap
             keymap.update_keymap()
-            
+
             for area in context.screen.areas:
                 if area.type == 'PREFERENCES':
                     area.tag_redraw()
-            
+
             return {'FINISHED'}
-        
+
         return {'RUNNING_MODAL'}
-    
+
     def invoke(self, context, event):
         prefs = context.preferences.addons[__package__].preferences
         prefs.is_capturing = True
         prefs.current_capturing_key = "Press a key combination..."
         self.current_key = "Press a key combination..."
         context.window_manager.modal_handler_add(self)
-        
+
         for area in context.screen.areas:
             if area.type == 'PREFERENCES':
                 area.tag_redraw()
-        
+
         return {'RUNNING_MODAL'}
 
 
@@ -101,37 +144,37 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         description="Shortcut key",
         default='A'
     )
-    
+
     use_ctrl: BoolProperty(
         name="Ctrl",
         description="Use Ctrl modifier",
         default=True
     )
-    
+
     use_shift: BoolProperty(
         name="Shift",
         description="Use Shift modifier",
         default=True
     )
-    
+
     use_alt: BoolProperty(
         name="Alt",
         description="Use Alt modifier",
         default=False
     )
-    
+
     is_capturing: BoolProperty(
         name="Is Capturing",
         description="Currently capturing keymap",
         default=False
     )
-    
+
     current_capturing_key: StringProperty(
         name="Current Capturing Key",
         description="Currently pressed key combination",
         default=""
     )
-    
+
     tab_sort_order: EnumProperty(
         name="Sort Order",
         description="How to sort the sidebar tabs in the menu",
@@ -141,7 +184,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         ],
         default='ALPHABETICAL',
     )
-    
+
     popup_columns: IntProperty(
         name="Columns",
         description="Number of columns in the popup menu",
@@ -152,12 +195,25 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         soft_max=4
     )
 
+    filter_mode: EnumProperty(
+        name="Tab Filter",
+        description="Choose how to filter the tab list",
+        items=[
+            ('NONE', "Show All", "Show all available tabs"),
+            ('WHITELIST', "Whitelist", "Only show selected tabs"),
+            ('BLACKLIST', "Blacklist", "Hide selected tabs"),
+        ],
+        default='NONE',
+    )
+
+    filter_tabs: CollectionProperty(type=SidebarTabFilterItem)
+
     def draw(self, context):
         layout = self.layout
-        
+
         box = layout.box()
         box.label(text="Keyboard Shortcut Settings", icon='KEYINGSET')
-        
+
         current_shortcut = ""
         if self.use_ctrl:
             current_shortcut += "Ctrl+"
@@ -166,11 +222,11 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         if self.use_alt:
             current_shortcut += "Alt+"
         current_shortcut += self.shortcut_key
-        
+
         row = box.row(align=True)
         row.label(text="Current Shortcut:", icon='EVENT_' + self.shortcut_key if len(self.shortcut_key) == 1 else 'KEYINGSET')
         row.label(text=current_shortcut)
-        
+
         row = box.row()
         row.scale_y = 1.5
         if self.is_capturing:
@@ -178,57 +234,71 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
             row.label(text=display_text, icon='HAND')
         else:
             row.operator("preferences.capture_keymap", text="Set Shortcut (Click & Press Key)", icon='HAND')
-        
+
         layout.separator()
-        
+
+        # 동적 화이트리스트/블랙리스트 필터 UI
+        box = layout.box()
+        box.label(text="Filter Settings (Whitelist / Blacklist)", icon='FILTER')
+
+        row = box.row()
+        row.prop(self, "filter_mode", expand=True)
+
+        if self.filter_mode != 'NONE':
+            row = box.row()
+            row.operator("preferences.refresh_tab_filters", text="Fetch Current Tabs", icon='FILE_REFRESH')
+            row.operator("preferences.clear_tab_filters", text="", icon='TRASH')
+
+            if len(self.filter_tabs) > 0:
+                filter_box = box.box()
+                # 컬럼을 나누어 체크박스들을 컴팩트하게 정렬
+                flow = filter_box.column_flow(columns=3)
+                for item in self.filter_tabs:
+                    flow.prop(item, "use", text=item.name)
+            else:
+                box.label(text="Click 'Fetch Current Tabs' to load available tabs.", icon='INFO')
+
+        layout.separator()
+
         box = layout.box()
         box.label(text="Display Settings", icon='PRESET')
-        
+
         row = box.row()
         row.label(text="Tab Sort Order:")
         row.prop(self, "tab_sort_order", text="")
-        
+
         row = box.row()
         row.label(text="Popup Columns:")
         row.prop(self, "popup_columns", text="")
-        
+
         layout.separator()
-        
-        box = layout.box()
-        box.label(text="Usage", icon='INFO')
-        box.label(text="1. Click 'Set Shortcut' button and press your desired key combination")
-        box.label(text="2. Press the shortcut in 3D Viewport to open the menu")
-        box.label(text="3. Use the search box to filter tabs (optional)")
-        box.label(text="4. Click on a tab name to switch to it")
-        
-        layout.separator()
-        
+
         if rna_keymap_ui:
             col = layout.column()
             col.label(text="Keymap Settings:", icon='PREFERENCES')
-            
+
             from . import keymap
-            
+
             wm = context.window_manager
             kc = wm.keyconfigs.user
-            
+
             old_km_name = ""
             get_kmi_l = []
-            
+
             for km_add, kmi_add in keymap.addon_keymaps:
                 for km_con in kc.keymaps:
                     if km_add.name == km_con.name:
                         km = km_con
                         break
-                
+
                 for kmi_con in km.keymap_items:
                     if kmi_add.idname == kmi_con.idname:
                         get_kmi_l.append((km, kmi_con))
-            
+
             for km, kmi in get_kmi_l:
                 if not km.name == old_km_name:
                     col.label(text=str(km.name), icon="DOT")
-                
+
                 col.context_pointer_set("keymap", km)
                 rna_keymap_ui.draw_kmi([], kc, km, kmi, col, 0)
                 col.separator()
@@ -236,6 +306,9 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
 
 
 classes = (
+    SidebarTabFilterItem,
+    PREFERENCES_OT_refresh_tab_filters,
+    PREFERENCES_OT_clear_tab_filters,
     PREFERENCES_OT_capture_keymap,
     QuickSidebarSwitcherPreferences,
 )

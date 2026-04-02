@@ -13,6 +13,17 @@ def update_current_tabs(context):
 
     tabs_dict = {}
 
+    try:
+        prefs = context.preferences.addons[__package__].preferences
+        sort_order = prefs.tab_sort_order
+        filter_mode = prefs.filter_mode
+        # 체크된 탭들의 이름만 모아서 세트(Set)로 만듦
+        active_filters = {item.name for item in prefs.filter_tabs if item.use}
+    except:
+        sort_order = 'ALPHABETICAL'
+        filter_mode = 'NONE'
+        active_filters = set()
+
     # 현재 컨텍스트에서 UI(N패널) 영역 찾기
     ui_region = None
     if context.area:
@@ -29,8 +40,16 @@ def update_current_tabs(context):
                 getattr(panel_cls, "bl_region_type", None) == 'UI':
 
             category = getattr(panel_cls, "bl_category", "Unknown")
-            order = getattr(panel_cls, "bl_order", 0)
 
+            # 화이트리스트 / 블랙리스트 필터링 적용
+            if filter_mode == 'WHITELIST' and active_filters:
+                if category not in active_filters:
+                    continue
+            elif filter_mode == 'BLACKLIST' and active_filters:
+                if category in active_filters:
+                    continue
+
+            order = getattr(panel_cls, "bl_order", 0)
             is_visible = True
 
             # 블렌더 기본 탭(Item, Tool, View)은 poll 검사를 생략하고 항상 리스트에 포함
@@ -54,12 +73,6 @@ def update_current_tabs(context):
 
             if category not in tabs_dict or order < tabs_dict[category]:
                 tabs_dict[category] = order
-
-    try:
-        prefs = context.preferences.addons[__package__].preferences
-        sort_order = prefs.tab_sort_order
-    except:
-        sort_order = 'ALPHABETICAL'
 
     if sort_order == 'SIDEBAR':
         sorted_tabs = [cat for cat, _ in sorted(tabs_dict.items(), key=lambda x: x[1])]
@@ -217,6 +230,19 @@ class VIEW3D_OT_sidebar_tab_search(Operator):
         return {'CANCELLED'}
 
 
+class VIEW3D_OT_open_addon_prefs(Operator):
+    """Open Preferences for Quick Sidebar Switcher"""
+    bl_idname = "view3d.open_sidebar_switcher_prefs"
+    bl_label = "Open Settings"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        bpy.ops.screen.userpref_show('INVOKE_DEFAULT')
+        context.window_manager.addon_search = "Quick Sidebar Switcher"
+        context.preferences.active_section = 'ADDONS'
+        return {'FINISHED'}
+
+
 class VIEW3D_MT_sidebar_tab_menu(bpy.types.Menu):
     bl_label = "Sidebar Tabs"
     bl_idname = "VIEW3D_MT_sidebar_tab_menu"
@@ -224,10 +250,17 @@ class VIEW3D_MT_sidebar_tab_menu(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Search option at the top
-        layout.operator_context = 'INVOKE_DEFAULT'
-        layout.operator("view3d.sidebar_tab_search", text="Search Tabs...", icon='VIEWZOOM')
-        layout.separator()
+        # 상단 레이아웃을 확실히 고정하기 위해 column을 사용하고 버튼들을 각각의 줄로 분리
+        top_col = layout.column()
+
+        # 첫 번째 줄: 환경 설정 버튼
+        top_col.operator("view3d.open_sidebar_switcher_prefs", text="Open Settings", icon='PREFERENCES')
+
+        # 두 번째 줄: 검색 탭
+        top_col.operator_context = 'INVOKE_DEFAULT'
+        top_col.operator("view3d.sidebar_tab_search", text="Search Tabs...", icon='VIEWZOOM')
+
+        top_col.separator()
 
         try:
             prefs = context.preferences.addons[__package__].preferences
@@ -258,6 +291,7 @@ classes = (
     VIEW3D_OT_switch_sidebar_tab,
     VIEW3D_OT_sidebar_tab_menu,
     VIEW3D_OT_sidebar_tab_search,
+    VIEW3D_OT_open_addon_prefs,
     VIEW3D_MT_sidebar_tab_menu,
 )
 
