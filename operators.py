@@ -18,32 +18,39 @@ def update_current_tabs(context):
     if context.area:
         ui_region = next((r for r in context.area.regions if r.type == 'UI'), None)
 
+    # 안전한 temp_override를 위한 딕셔너리 구성
+    override_kwargs = {}
+    if getattr(context, "window", None): override_kwargs["window"] = context.window
+    if getattr(context, "area", None): override_kwargs["area"] = context.area
+    if ui_region: override_kwargs["region"] = ui_region
+
     for panel_cls in bpy.types.Panel.__subclasses__():
         if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
                 getattr(panel_cls, "bl_region_type", None) == 'UI':
 
+            category = getattr(panel_cls, "bl_category", "Unknown")
+            order = getattr(panel_cls, "bl_order", 0)
+
             is_visible = True
-            if hasattr(panel_cls, 'poll'):
+
+            # 블렌더 기본 탭(Item, Tool, View)은 poll 검사를 생략하고 항상 리스트에 포함
+            if category not in {"Item"} and hasattr(panel_cls, 'poll'):
                 try:
-                    # 1차 시도: 현재 컨텍스트로 활성화 여부(poll) 확인
+                    # 1차 시도: 현재 컨텍스트로 활성화 여부 확인
                     is_visible = panel_cls.poll(context)
                 except Exception:
                     is_visible = False
 
-                # 2차 시도: 마우스가 3D Viewport 메인 화면에 있을 경우 poll()이 실패하는 것을 방지하기 위해
-                # 임시로 UI(N패널) 영역 컨텍스트로 오버라이드하여 다시 검사
-                if not is_visible and ui_region and hasattr(context, "temp_override"):
+                # 2차 시도: 일반 컨텍스트에서 실패했을 경우, N패널 컨텍스트로 오버라이드하여 재검사
+                if not is_visible and override_kwargs and hasattr(context, "temp_override"):
                     try:
-                        with context.temp_override(region=ui_region):
+                        with context.temp_override(**override_kwargs):
                             is_visible = panel_cls.poll(context)
                     except Exception:
                         is_visible = False
 
             if not is_visible:
                 continue
-
-            category = getattr(panel_cls, "bl_category", "Unknown")
-            order = getattr(panel_cls, "bl_order", 0)
 
             if category not in tabs_dict or order < tabs_dict[category]:
                 tabs_dict[category] = order
