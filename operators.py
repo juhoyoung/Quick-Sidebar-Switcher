@@ -36,9 +36,14 @@ def update_current_tabs(context):
     if ui_region: override_kwargs["region"] = ui_region
 
     for panel_cls in bpy.types.Panel.__subclasses__():
-        # Skip unregistered classes to ignore disabled/deleted addons
-        if not hasattr(panel_cls, "bl_rna"):
-            continue
+        # Strictly check if the class is currently registered in Blender
+        # This prevents disabled/deleted addons from appearing before a restart
+        try:
+            if not panel_cls.is_registered:
+                continue
+        except AttributeError:
+            if not hasattr(panel_cls, "bl_rna"):
+                continue
 
         if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
                 getattr(panel_cls, "bl_region_type", None) == 'UI':
