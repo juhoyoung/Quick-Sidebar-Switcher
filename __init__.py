@@ -1,9 +1,9 @@
 # __init__.py
 bl_info = {
     "name": "Quick Sidebar Switcher",
-    "author": "happy Blender 😒",
-    "version": (1, 2, 0),
-    "blender": (5, 0, 0),
+    "author": "hyeffect55",
+    "version": (1, 3, 0),
+    "blender": (5, 0, 1),
     "location": "3D Viewport > Ctrl+Shift+A",
     "description": "Quickly switch between Side Panel tabs with a popup menu",
     "warning": "",

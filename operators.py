@@ -169,7 +169,7 @@ class VIEW3D_OT_switch_sidebar_tab(Operator):
 class VIEW3D_OT_sidebar_tab_menu(Operator):
     """Open a popup menu to select a sidebar tab"""
     bl_idname = "view3d.sidebar_tab_menu"
-    bl_label = "Select Sidebar Tab"
+    bl_label = "Open Sidebar Tab"
 
     def invoke(self, context, event):
         # Force refresh the tab list when the shortcut is executed.
