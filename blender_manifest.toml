@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+id = "quick_sidebar_switcher"
+version = "1.1.0"
+name = "Quick Sidebar Switcher"
+tagline = "Quickly switch between Side Panel tabs with a popup menu"
+maintainer = "happy Blender 😒"
+type = "add-on"
+
+blender_version_min = "5.0.1"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".git",
+  "*.zip",
+  "*.sh",
+  ".idea",
+  ".gitignore"
+]

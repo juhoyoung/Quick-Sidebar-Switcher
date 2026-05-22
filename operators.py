@@ -3,11 +3,11 @@ import bpy
 from bpy.types import Operator
 from bpy.props import StringProperty, EnumProperty
 
-# 단축키 실행 시점의 탭 목록을 저장할 전역 리스트
+# Global list to store the tabs at the time of shortcut execution
 CURRENT_TABS = []
 
 def update_current_tabs(context):
-    """단축키 실행 시점에서 N패널 탭 목록을 다시 리로드하여 캐싱합니다."""
+    """Reload and cache the N-panel tab list when the shortcut is executed."""
     global CURRENT_TABS
     CURRENT_TABS.clear()
 
@@ -17,31 +17,35 @@ def update_current_tabs(context):
         prefs = context.preferences.addons[__package__].preferences
         sort_order = prefs.tab_sort_order
         filter_mode = prefs.filter_mode
-        # 체크된 탭들의 이름만 모아서 세트(Set)로 만듦
+        # Collect the names of checked tabs into a set
         active_filters = {item.name for item in prefs.filter_tabs if item.use}
     except:
         sort_order = 'ALPHABETICAL'
         filter_mode = 'NONE'
         active_filters = set()
 
-    # 현재 컨텍스트에서 UI(N패널) 영역 찾기
+    # Find the UI (N-panel) region in the current context
     ui_region = None
     if context.area:
         ui_region = next((r for r in context.area.regions if r.type == 'UI'), None)
 
-    # 안전한 temp_override를 위한 딕셔너리 구성
+    # Configure dictionary for safe temp_override
     override_kwargs = {}
     if getattr(context, "window", None): override_kwargs["window"] = context.window
     if getattr(context, "area", None): override_kwargs["area"] = context.area
     if ui_region: override_kwargs["region"] = ui_region
 
     for panel_cls in bpy.types.Panel.__subclasses__():
+        # Skip unregistered classes to ignore disabled/deleted addons
+        if not hasattr(panel_cls, "bl_rna"):
+            continue
+
         if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
                 getattr(panel_cls, "bl_region_type", None) == 'UI':
 
             category = getattr(panel_cls, "bl_category", "Unknown")
 
-            # 화이트리스트 / 블랙리스트 필터링 적용
+            # Apply whitelist / blacklist filtering
             if filter_mode == 'WHITELIST' and active_filters:
                 if category not in active_filters:
                     continue
@@ -52,15 +56,15 @@ def update_current_tabs(context):
             order = getattr(panel_cls, "bl_order", 0)
             is_visible = True
 
-            # 블렌더 기본 탭(Item, Tool, View)은 poll 검사를 생략하고 항상 리스트에 포함
+            # Always include default Blender tabs (Item, Tool, View) without poll check
             if category not in {"Item"} and hasattr(panel_cls, 'poll'):
                 try:
-                    # 1차 시도: 현재 컨텍스트로 활성화 여부 확인
+                    # 1st attempt: Check visibility with current context
                     is_visible = panel_cls.poll(context)
                 except Exception:
                     is_visible = False
 
-                # 2차 시도: 일반 컨텍스트에서 실패했을 경우, N패널 컨텍스트로 오버라이드하여 재검사
+                # 2nd attempt: If failed in general context, override with N-panel context and re-check
                 if not is_visible and override_kwargs and hasattr(context, "temp_override"):
                     try:
                         with context.temp_override(**override_kwargs):
@@ -83,7 +87,7 @@ def update_current_tabs(context):
 
 
 def get_visible_sidebar_tabs(context, sort_order='ALPHABETICAL'):
-    """캐싱된 탭 목록 반환"""
+    """Return cached tab list"""
     if not CURRENT_TABS:
         update_current_tabs(context)
     return CURRENT_TABS
@@ -163,7 +167,7 @@ class VIEW3D_OT_sidebar_tab_menu(Operator):
     bl_label = "Select Sidebar Tab"
 
     def invoke(self, context, event):
-        # 단축키 실행 시점에 강제로 탭 목록을 갱신합니다.
+        # Force refresh the tab list when the shortcut is executed.
         update_current_tabs(context)
         bpy.ops.wm.call_menu(name="VIEW3D_MT_sidebar_tab_menu")
         return {'FINISHED'}
@@ -250,13 +254,13 @@ class VIEW3D_MT_sidebar_tab_menu(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # 상단 레이아웃을 확실히 고정하기 위해 column을 사용하고 버튼들을 각각의 줄로 분리
+        # Use column to firmly fix the top layout and separate buttons into individual rows
         top_col = layout.column()
 
-        # 첫 번째 줄: 환경 설정 버튼
+        # First row: Preferences button
         top_col.operator("view3d.open_sidebar_switcher_prefs", text="Open Settings", icon='PREFERENCES')
 
-        # 두 번째 줄: 검색 탭
+        # Second row: Search tab
         top_col.operator_context = 'INVOKE_DEFAULT'
         top_col.operator("view3d.sidebar_tab_search", text="Search Tabs...", icon='VIEWZOOM')
 

@@ -23,15 +23,25 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
 
-        # 현재 N패널에 존재하는 모든 탭 카테고리 수집
+        # Collect all tab categories currently existing in the N-panel
         tabs_set = set()
         for panel_cls in bpy.types.Panel.__subclasses__():
+            # Skip unregistered classes to prevent showing deleted addons
+            if not hasattr(panel_cls, "bl_rna"):
+                continue
+
             if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
                     getattr(panel_cls, "bl_region_type", None) == 'UI':
                 cat = getattr(panel_cls, "bl_category", "Unknown")
                 tabs_set.add(cat)
 
-        # 기존 목록에 없는 새로운 탭만 추가
+        # Remove deleted/unregistered tabs from the filter list
+        # We iterate backwards to safely remove items from the collection
+        for i in range(len(prefs.filter_tabs) - 1, -1, -1):
+            if prefs.filter_tabs[i].name not in tabs_set:
+                prefs.filter_tabs.remove(i)
+
+        # Add only new tabs that are not in the existing list
         existing_tabs = {item.name for item in prefs.filter_tabs}
         for tab in sorted(tabs_set):
             if tab not in existing_tabs:
@@ -237,7 +247,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
 
         layout.separator()
 
-        # 동적 화이트리스트/블랙리스트 필터 UI
+        # Dynamic whitelist/blacklist filter UI
         box = layout.box()
         box.label(text="Filter Settings (Whitelist / Blacklist)", icon='FILTER')
 
@@ -251,7 +261,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
 
             if len(self.filter_tabs) > 0:
                 filter_box = box.box()
-                # 컬럼을 나누어 체크박스들을 컴팩트하게 정렬
+                # Divide columns to align checkboxes compactly
                 flow = filter_box.column_flow(columns=3)
                 for item in self.filter_tabs:
                     flow.prop(item, "use", text=item.name)
