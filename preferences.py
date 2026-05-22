@@ -23,34 +23,44 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
 
-        # Collect all tab categories currently existing in the N-panel
+        # 1. Collect all currently registered tab categories
         tabs_set = set()
         for panel_cls in bpy.types.Panel.__subclasses__():
-            # Skip unregistered classes to prevent showing deleted addons
-            if not hasattr(panel_cls, "bl_rna"):
-                continue
+            # Strictly check if the class is currently registered in Blender
+            # This prevents disabled/deleted addons from appearing before a restart
+            try:
+                if not panel_cls.is_registered:
+                    continue
+            except AttributeError:
+                if not hasattr(panel_cls, "bl_rna"):
+                    continue
 
             if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
                     getattr(panel_cls, "bl_region_type", None) == 'UI':
                 cat = getattr(panel_cls, "bl_category", "Unknown")
                 tabs_set.add(cat)
 
-        # Remove deleted/unregistered tabs from the filter list
-        # We iterate backwards to safely remove items from the collection
-        for i in range(len(prefs.filter_tabs) - 1, -1, -1):
-            if prefs.filter_tabs[i].name not in tabs_set:
-                prefs.filter_tabs.remove(i)
+        # 2. Save current checkbox states before clearing the list
+        current_state = {item.name: item.use for item in prefs.filter_tabs}
 
-        # Add only new tabs that are not in the existing list
-        existing_tabs = {item.name for item in prefs.filter_tabs}
-        for tab in sorted(tabs_set):
-            if tab not in existing_tabs:
-                item = prefs.filter_tabs.add()
-                item.name = tab
-                item.use = False
+        # 3. Determine the final list of tabs to display:
+        # Includes active tabs + any previously checked tabs (to preserve them)
+        final_tabs = tabs_set.copy()
+        for name, use in current_state.items():
+            if use:
+                final_tabs.add(name)
+
+        # 4. Clear the collection
+        prefs.filter_tabs.clear()
+
+        # 5. Re-add everything in alphabetical order
+        # Sort case-insensitively for better UX
+        for tab in sorted(final_tabs, key=lambda x: x.lower()):
+            item = prefs.filter_tabs.add()
+            item.name = tab
+            item.use = current_state.get(tab, False)
 
         return {'FINISHED'}
-
 
 class PREFERENCES_OT_clear_tab_filters(Operator):
     """Clear all items in the filter list"""
