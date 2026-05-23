@@ -1,10 +1,11 @@
 # preferences.py
+
 import bpy
 from bpy.types import AddonPreferences, Operator, PropertyGroup
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty
 
 # ------------------------------------------------------------------------
-# UI Drawing Functions (Keymesh 스타일 적용)
+# UI Drawing Functions
 # ------------------------------------------------------------------------
 def get_user_kmi_from_addon_kmi(addon_km, addon_kmi, kc_user):
     """Find the keymap item in the user preferences corresponding to the addon keymap."""
