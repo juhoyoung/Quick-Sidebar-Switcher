@@ -13,26 +13,24 @@ bl_info = {
 
 import bpy
 from . import common
-from . import ops_view3d
-from . import ops_node
-from . import ops_dopesheet
+from . import operators
+from . import editors
 from . import preferences
 from . import keymap
 
 def register():
     common.CACHED_TABS.clear()
-    ops_view3d.register()
-    ops_node.register()
-    ops_dopesheet.register()
+
+    operators.register()
+    editors.register()
     preferences.register()
     keymap.register()
 
 def unregister():
     keymap.unregister()
     preferences.unregister()
-    ops_dopesheet.unregister()
-    ops_node.unregister()
-    ops_view3d.unregister()
+    editors.unregister()
+    operators.unregister()
 
 if __name__ == "__main__":
     register()

@@ -1,10 +1,11 @@
+# common.py
 import bpy
 
 # Dictionary to store tabs per space type dynamically
 CACHED_TABS = {}
 
 def get_all_subclasses(cls):
-    # Retrieve all unique subclasses using a stack
+    """Recursively fetch all unique subclasses of a given class."""
     subclasses = set()
     work_list = cls.__subclasses__()
 
@@ -17,9 +18,7 @@ def get_all_subclasses(cls):
     return list(subclasses)
 
 def update_tabs(context, space_type):
-    # Reload and cache the N-panel tab list for a specific space type
-    CACHED_TABS[space_type] = []
-    # Reload and cache the N-panel tab list for a specific space type
+    """Reload and cache the N-panel tab list for a specific space type."""
     CACHED_TABS[space_type] = []
     tabs_dict = {}
 
@@ -27,15 +26,8 @@ def update_tabs(context, space_type):
         prefs = context.preferences.addons[__package__].preferences
         sort_order = prefs.tab_sort_order
 
-        # Diverge pointer settings according to current screen space
-        if space_type == 'VIEW_3D':
-            settings = prefs.view3d_settings
-        elif space_type == 'NODE_EDITOR':
-            settings = prefs.node_settings
-        elif space_type == 'DOPESHEET_EDITOR':
-            settings = prefs.dopesheet_settings
-        else:
-            settings = None
+        # Access the corresponding editor settings dynamically
+        settings = prefs.get_editor_settings(space_type)
 
         if settings:
             filter_mode = settings.filter_mode
@@ -54,6 +46,7 @@ def update_tabs(context, space_type):
         filter_mode = 'NONE'
         active_filters = set()
 
+    # Configure context override for safe poll checking
     override_kwargs = {}
     if getattr(context, "window", None): override_kwargs["window"] = context.window
     if getattr(context, "area", None): override_kwargs["area"] = context.area
@@ -61,7 +54,6 @@ def update_tabs(context, space_type):
     if ui_region: override_kwargs["region"] = ui_region
 
     for panel_cls in get_all_subclasses(bpy.types.Panel):
-        # Verify if class is currently registered
         try:
             if not panel_cls.is_registered: continue
         except AttributeError:
@@ -72,14 +64,14 @@ def update_tabs(context, space_type):
 
             category = getattr(panel_cls, "bl_category", "Unknown")
 
-            # Apply user filtering options
+            # Apply filter constraints
             if filter_mode == 'WHITELIST' and active_filters and category not in active_filters: continue
             if filter_mode == 'BLACKLIST' and active_filters and category in active_filters: continue
 
             order = getattr(panel_cls, "bl_order", 0)
             is_visible = True
 
-            # Exclude default tabs from strict poll checking
+            # Bypass strict poll check for default essential tabs
             if category not in {"Item", "Tool", "View", "Node", "Options", "Strip", "Modifiers"}:
                 if hasattr(panel_cls, 'poll'):
                     try:
@@ -108,22 +100,14 @@ def update_tabs(context, space_type):
 
 
 def get_visible_tabs(context, space_type, sort_order='ALPHABETICAL'):
-    # Return the cached tab list, updating it if it's empty
+    """Return the cached tab list, or update it if empty."""
     if space_type not in CACHED_TABS or not CACHED_TABS[space_type]:
         update_tabs(context, space_type)
     return CACHED_TABS.get(space_type, [])
 
 
-def get_tab_enum_items(self, context):
-    # Dynamically generate enum items based on current active space
-    space_type = getattr(getattr(context, "space_data", None), "type", 'VIEW_3D')
-    tabs = get_visible_tabs(context, space_type)
-    items = [(tab, tab, "", i) for i, tab in enumerate(tabs)]
-    return items if items else [('NONE', 'No Tabs', '', 0)]
-
-
 def switch_tab_logic(context, space_type, tab_name):
-    # Core logic to safely open the UI region and switch the active tab
+    """Core logic to reveal the sidebar and switch active category."""
     area = context.area
     if not area or area.type != space_type:
         area = next((a for a in getattr(context.screen, "areas", []) if a.type == space_type), None)

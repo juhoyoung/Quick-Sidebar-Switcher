@@ -25,6 +25,12 @@ def register():
         kmi_dope.active = True
         addon_keymaps.append((km_dope, kmi_dope))
 
+        # 4. Graph Editor
+        km_graph = kc.keymaps.new(name='Graph Editor', space_type='GRAPH_EDITOR')
+        kmi_graph = km_graph.keymap_items.new('graph.sidebar_tab_menu', 'A', 'PRESS', ctrl=True, shift=True)
+        kmi_graph.active = True
+        addon_keymaps.append((km_graph, kmi_graph))
+
 
 def unregister():
     for km, kmi in addon_keymaps:
