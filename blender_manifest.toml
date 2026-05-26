@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "quick_sidebar_switcher"
-version = "1.3.1"
+version = "1.3.2"
 name = "Quick Sidebar Switcher"
 tagline = "Quickly switch between Side Panel tabs with a popup menu"
 maintainer = "hyeffect55 <hyeffect55@gmail.com>"
