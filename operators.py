@@ -6,6 +6,23 @@ from bpy.props import StringProperty, EnumProperty
 # Global list to store the tabs at the time of shortcut execution
 CURRENT_TABS = []
 
+def get_all_subclasses(cls):
+    # Set to store unique subclasses and avoid duplicates
+    subclasses = set()
+    # List acts as a stack to process subclasses iteratively
+    work_list = cls.__subclasses__()
+
+    while work_list:
+        # Pop a class from the list
+        sub = work_list.pop()
+
+        # If it's not already in our set, add it and append its children
+        if sub not in subclasses:
+            subclasses.add(sub)
+            work_list.extend(sub.__subclasses__())
+
+    return list(subclasses)
+
 def update_current_tabs(context):
     """Reload and cache the N-panel tab list when the shortcut is executed."""
     global CURRENT_TABS
@@ -35,7 +52,7 @@ def update_current_tabs(context):
     if getattr(context, "area", None): override_kwargs["area"] = context.area
     if ui_region: override_kwargs["region"] = ui_region
 
-    for panel_cls in bpy.types.Panel.__subclasses__():
+    for panel_cls in get_all_subclasses(bpy.types.Panel):
         # Strictly check if the class is currently registered in Blender
         # This prevents disabled/deleted addons from appearing before a restart
         try:
@@ -62,20 +79,29 @@ def update_current_tabs(context):
             is_visible = True
 
             # Always include default Blender tabs (Item, Tool, View) without poll check
-            if category not in {"Item"} and hasattr(panel_cls, 'poll'):
-                try:
-                    # 1st attempt: Check visibility with current context
-                    is_visible = panel_cls.poll(context)
-                except Exception:
-                    is_visible = False
+            if category not in {"Item", "Tool", "View"}:
 
-                # 2nd attempt: If failed in general context, override with N-panel context and re-check
-                if not is_visible and override_kwargs and hasattr(context, "temp_override"):
+                # 1. If the panel has a poll method, use it
+                if hasattr(panel_cls, 'poll'):
                     try:
-                        with context.temp_override(**override_kwargs):
-                            is_visible = panel_cls.poll(context)
+                        # 1st attempt: Check visibility with current context
+                        is_visible = panel_cls.poll(context)
                     except Exception:
                         is_visible = False
+
+                    # 2nd attempt: If failed in general context, override with N-panel context and re-check
+                    if not is_visible and override_kwargs and hasattr(context, "temp_override"):
+                        try:
+                            with context.temp_override(**override_kwargs):
+                                is_visible = panel_cls.poll(context)
+                        except Exception:
+                            is_visible = False
+
+                # 2. If the panel DOES NOT have a poll method, check manually
+                else:
+                    if category == 'Edit':
+                        # Check if Blender is currently in Edit mode
+                        is_visible = (getattr(context, "mode", "") == 'EDIT_MESH')
 
             if not is_visible:
                 continue

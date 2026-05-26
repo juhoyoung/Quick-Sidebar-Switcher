@@ -97,6 +97,23 @@ class SidebarTabFilterItem(PropertyGroup):
     name: StringProperty()
     use: BoolProperty(default=False)
 
+def get_all_subclasses(cls):
+    # Set to store unique subclasses and avoid duplicates
+    subclasses = set()
+    # List acts as a stack to process subclasses iteratively
+    work_list = cls.__subclasses__()
+
+    while work_list:
+        # Pop a class from the list
+        sub = work_list.pop()
+
+        # If it's not already in our set, add it and append its children
+        if sub not in subclasses:
+            subclasses.add(sub)
+            work_list.extend(sub.__subclasses__())
+
+    return list(subclasses)
+
 class PREFERENCES_OT_refresh_tab_filters(Operator):
     """Fetch currently available sidebar tabs"""
     bl_idname = "preferences.refresh_tab_filters"
@@ -105,8 +122,32 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
 
+        # Find the 3D Viewport area and UI region to use for context override
+        view3d_area = None
+        ui_region = None
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'VIEW_3D':
+                    view3d_area = area
+                    for region in area.regions:
+                        if region.type == 'UI':
+                            ui_region = region
+                            break
+                    if view3d_area:
+                        break
+            if view3d_area:
+                break
+
+        # Prepare kwargs for temp_override
+        override_kwargs = {}
+        if view3d_area:
+            override_kwargs["window"] = window
+            override_kwargs["area"] = view3d_area
+            if ui_region:
+                override_kwargs["region"] = ui_region
+
         tabs_set = set()
-        for panel_cls in bpy.types.Panel.__subclasses__():
+        for panel_cls in get_all_subclasses(bpy.types.Panel):
             try:
                 if not panel_cls.is_registered:
                     continue
@@ -116,8 +157,25 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
 
             if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
                     getattr(panel_cls, "bl_region_type", None) == 'UI':
-                cat = getattr(panel_cls, "bl_category", "Unknown")
-                tabs_set.add(cat)
+
+                category = getattr(panel_cls, "bl_category", "Unknown")
+
+                is_visible = True
+
+                # Check visibility using poll(), excluding basic tabs
+                if category not in {"Item", "Tool", "View"} and hasattr(panel_cls, 'poll'):
+                    try:
+                        # Simulate 3D Viewport context to accurately test poll()
+                        if override_kwargs and hasattr(context, "temp_override"):
+                            with context.temp_override(**override_kwargs):
+                                is_visible = panel_cls.poll(context)
+                        else:
+                            is_visible = False
+                    except Exception:
+                        is_visible = False
+
+                if is_visible:
+                    tabs_set.add(category)
 
         current_state = {item.name: item.use for item in prefs.filter_tabs}
 
