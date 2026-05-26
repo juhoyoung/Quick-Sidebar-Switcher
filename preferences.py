@@ -1,8 +1,7 @@
 # preferences.py
-
 import bpy
 from bpy.types import AddonPreferences, Operator, PropertyGroup
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, PointerProperty
 
 # ------------------------------------------------------------------------
 # UI Drawing Functions
@@ -97,110 +96,99 @@ class SidebarTabFilterItem(PropertyGroup):
     name: StringProperty()
     use: BoolProperty(default=False)
 
-def get_all_subclasses(cls):
-    # Set to store unique subclasses and avoid duplicates
-    subclasses = set()
-    # List acts as a stack to process subclasses iteratively
-    work_list = cls.__subclasses__()
-
-    while work_list:
-        # Pop a class from the list
-        sub = work_list.pop()
-
-        # If it's not already in our set, add it and append its children
-        if sub not in subclasses:
-            subclasses.add(sub)
-            work_list.extend(sub.__subclasses__())
-
-    return list(subclasses)
+class EditorFilterSettings(PropertyGroup):
+    """Property group to hold filter data independently for each editor type"""
+    filter_mode: EnumProperty(
+        name="Tab Filter",
+        items=[
+            ('NONE', "Show All", ""),
+            ('WHITELIST', "Whitelist", ""),
+            ('BLACKLIST', "Blacklist", ""),
+        ],
+        default='NONE',
+    )
+    show_expanded: BoolProperty(
+        name="Show Filter Settings",
+        description="Expand or collapse filter settings for this editor",
+        default=False,
+    )
+    whitelist_tabs: CollectionProperty(type=SidebarTabFilterItem)
+    blacklist_tabs: CollectionProperty(type=SidebarTabFilterItem)
 
 class PREFERENCES_OT_refresh_tab_filters(Operator):
-    """Fetch currently available sidebar tabs"""
+    """Fetch currently available sidebar tabs for a specific editor"""
     bl_idname = "preferences.refresh_tab_filters"
     bl_label = "Fetch Current Tabs"
+
+    editor_type: StringProperty() # 'VIEW_3D', 'NODE_EDITOR', 'DOPESHEET_EDITOR'
 
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
 
-        # Find the 3D Viewport area and UI region to use for context override
-        view3d_area = None
-        ui_region = None
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'VIEW_3D':
-                    view3d_area = area
-                    for region in area.regions:
-                        if region.type == 'UI':
-                            ui_region = region
-                            break
-                    if view3d_area:
-                        break
-            if view3d_area:
-                break
-
-        # Prepare kwargs for temp_override
-        override_kwargs = {}
-        if view3d_area:
-            override_kwargs["window"] = window
-            override_kwargs["area"] = view3d_area
-            if ui_region:
-                override_kwargs["region"] = ui_region
+        if self.editor_type == 'VIEW_3D':
+            settings = prefs.view3d_settings
+        elif self.editor_type == 'NODE_EDITOR':
+            settings = prefs.node_settings
+        elif self.editor_type == 'DOPESHEET_EDITOR':
+            settings = prefs.dopesheet_settings
+        else:
+            return {'CANCELLED'}
 
         tabs_set = set()
+        from .common import get_all_subclasses
+
         for panel_cls in get_all_subclasses(bpy.types.Panel):
             try:
-                if not panel_cls.is_registered:
-                    continue
+                if not panel_cls.is_registered: continue
             except AttributeError:
-                if not hasattr(panel_cls, "bl_rna"):
-                    continue
+                if not hasattr(panel_cls, "bl_rna"): continue
 
-            if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
+            if getattr(panel_cls, "bl_space_type", None) == self.editor_type and \
                     getattr(panel_cls, "bl_region_type", None) == 'UI':
-
                 category = getattr(panel_cls, "bl_category", "Unknown")
+                tabs_set.add(category)
 
-                is_visible = True
+        # Preserve current checkbox states before reloading
+        wl_state = {item.name: item.use for item in settings.whitelist_tabs}
+        bl_state = {item.name: item.use for item in settings.blacklist_tabs}
 
-                # Check visibility using poll(), excluding basic tabs
-                if category not in {"Item", "Tool", "View"} and hasattr(panel_cls, 'poll'):
-                    try:
-                        # Simulate 3D Viewport context to accurately test poll()
-                        if override_kwargs and hasattr(context, "temp_override"):
-                            with context.temp_override(**override_kwargs):
-                                is_visible = panel_cls.poll(context)
-                        else:
-                            is_visible = False
-                    except Exception:
-                        is_visible = False
+        settings.whitelist_tabs.clear()
+        settings.blacklist_tabs.clear()
 
-                if is_visible:
-                    tabs_set.add(category)
+        for tab in sorted(tabs_set, key=lambda x: x.lower()):
+            wl_item = settings.whitelist_tabs.add()
+            wl_item.name = tab
+            wl_item.use = wl_state.get(tab, False)
 
-        current_state = {item.name: item.use for item in prefs.filter_tabs}
-
-        final_tabs = tabs_set.copy()
-        for name, use in current_state.items():
-            if use:
-                final_tabs.add(name)
-
-        prefs.filter_tabs.clear()
-
-        for tab in sorted(final_tabs, key=lambda x: x.lower()):
-            item = prefs.filter_tabs.add()
-            item.name = tab
-            item.use = current_state.get(tab, False)
+            bl_item = settings.blacklist_tabs.add()
+            bl_item.name = tab
+            bl_item.use = bl_state.get(tab, False)
 
         return {'FINISHED'}
 
 class PREFERENCES_OT_clear_tab_filters(Operator):
-    """Clear all items in the filter list"""
+    """Clear all items in the active filter list for a specific editor"""
     bl_idname = "preferences.clear_tab_filters"
     bl_label = "Clear List"
 
+    editor_type: StringProperty()
+
     def execute(self, context):
         prefs = context.preferences.addons[__package__].preferences
-        prefs.filter_tabs.clear()
+        if self.editor_type == 'VIEW_3D':
+            settings = prefs.view3d_settings
+        elif self.editor_type == 'NODE_EDITOR':
+            settings = prefs.node_settings
+        elif self.editor_type == 'DOPESHEET_EDITOR':
+            settings = prefs.dopesheet_settings
+        else:
+            return {'CANCELLED'}
+
+        if settings.filter_mode == 'WHITELIST':
+            settings.whitelist_tabs.clear()
+        elif settings.filter_mode == 'BLACKLIST':
+            settings.blacklist_tabs.clear()
+
         return {'FINISHED'}
 
 class QuickSidebarSwitcherPreferences(AddonPreferences):
@@ -208,36 +196,19 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
 
     tab_sort_order: EnumProperty(
         name="Sort Order",
-        description="How to sort the sidebar tabs in the menu",
-        items=[
-            ('ALPHABETICAL', "Alphabetical", "Sort tabs alphabetically"),
-            ('SIDEBAR', "Sidebar Order", "Sort tabs in sidebar order"),
-        ],
+        items=[('ALPHABETICAL', "Alphabetical", ""), ('SIDEBAR', "Sidebar Order", "")],
         default='ALPHABETICAL',
     )
 
     popup_columns: IntProperty(
         name="Columns",
-        description="Number of columns in the popup menu",
-        default=2,
-        min=1,
-        max=6,
-        soft_min=1,
-        soft_max=4
+        default=2, min=1, max=6, soft_min=1, soft_max=4
     )
 
-    filter_mode: EnumProperty(
-        name="Tab Filter",
-        description="Choose how to filter the tab list",
-        items=[
-            ('NONE', "Show All", "Show all available tabs"),
-            ('WHITELIST', "Whitelist", "Only show selected tabs"),
-            ('BLACKLIST', "Blacklist", "Hide selected tabs"),
-        ],
-        default='NONE',
-    )
-
-    filter_tabs: CollectionProperty(type=SidebarTabFilterItem)
+    # Isolated settings storage per editor via PointerProperty
+    view3d_settings: PointerProperty(type=EditorFilterSettings)
+    node_settings: PointerProperty(type=EditorFilterSettings)
+    dopesheet_settings: PointerProperty(type=EditorFilterSettings)
 
     def draw(self, context):
         layout = self.layout
@@ -251,8 +222,6 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         kc = wm.keyconfigs.user
 
         found_kmi = False
-
-        # keymap.py
         for km_add, kmi_add in keymap.addon_keymaps:
             user_km, user_kmi = get_user_kmi_from_addon_kmi(km_add, kmi_add, kc)
             if user_km and user_kmi:
@@ -267,23 +236,12 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
 
         # 2. Filter Settings
         box = layout.box()
-        box.label(text="Filter Settings (Whitelist / Blacklist)", icon='FILTER')
+        box.label(text="Filter Settings (Per Editor)", icon='FILTER')
 
-        row = box.row()
-        row.prop(self, "filter_mode", expand=True)
-
-        if self.filter_mode != 'NONE':
-            row = box.row()
-            row.operator("preferences.refresh_tab_filters", text="Fetch Current Tabs", icon='FILE_REFRESH')
-            row.operator("preferences.clear_tab_filters", text="", icon='TRASH')
-
-            if len(self.filter_tabs) > 0:
-                filter_box = box.box()
-                flow = filter_box.column_flow(columns=3)
-                for item in self.filter_tabs:
-                    flow.prop(item, "use", text=item.name)
-            else:
-                box.label(text="Click 'Fetch Current Tabs' to load available tabs.", icon='INFO')
+        # Draw collapse/expand UIs per editor dynamically
+        self.draw_editor_ui(box, self.view3d_settings, "3D View", 'VIEW_3D')
+        self.draw_editor_ui(box, self.node_settings, "Node Editor", 'NODE_EDITOR')
+        self.draw_editor_ui(box, self.dopesheet_settings, "Dopesheet", 'DOPESHEET_EDITOR')
 
         layout.separator()
 
@@ -299,18 +257,49 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         row.label(text="Popup Columns:")
         row.prop(self, "popup_columns", text="")
 
+    def draw_editor_ui(self, layout, settings, title, editor_type):
+        """Helper to draw expandable/collapsible filter boxes for editors"""
+        box = layout.box()
+        row = box.row(align=True)
+
+        # Disclosure triangle icon for opening/closing the settings list
+        icon = 'TRIA_DOWN' if settings.show_expanded else 'TRIA_RIGHT'
+        row.prop(settings, "show_expanded", text="", icon=icon, emboss=False)
+        row.label(text=f"{title} Filter Configuration")
+
+        if settings.show_expanded:
+            row_mode = box.row()
+            row_mode.prop(settings, "filter_mode", expand=True)
+
+            if settings.filter_mode != 'NONE':
+                active_list = settings.whitelist_tabs if settings.filter_mode == 'WHITELIST' else settings.blacklist_tabs
+
+                row_btn = box.row()
+                op_refresh = row_btn.operator("preferences.refresh_tab_filters", text="Fetch Current Tabs", icon='FILE_REFRESH')
+                op_refresh.editor_type = editor_type
+
+                op_clear = row_btn.operator("preferences.clear_tab_filters", text="", icon='TRASH')
+                op_clear.editor_type = editor_type
+
+                if len(active_list) > 0:
+                    filter_box = box.box()
+                    flow = filter_box.column_flow(columns=3)
+                    for item in active_list:
+                        flow.prop(item, "use", text=item.name)
+                else:
+                    box.label(text="Click 'Fetch Current Tabs' to load available tabs.", icon='INFO')
+
 
 classes = (
     SidebarTabFilterItem,
+    EditorFilterSettings,
     PREFERENCES_OT_refresh_tab_filters,
     PREFERENCES_OT_clear_tab_filters,
     QuickSidebarSwitcherPreferences,
 )
 
 def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    for cls in classes: bpy.utils.register_class(cls)
 
 def unregister():
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+    for cls in reversed(classes): bpy.utils.unregister_class(cls)
