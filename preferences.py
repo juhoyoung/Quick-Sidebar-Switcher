@@ -107,30 +107,89 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
     editor_type: StringProperty()
 
     def execute(self, context):
+        # Retrieve preferences and settings for the specific editor type
         prefs = context.preferences.addons[__package__].preferences
         settings = prefs.get_editor_settings(self.editor_type)
         if not settings: return {'CANCELLED'}
 
+        # Find the correct area and UI region to create a context override
+        target_window = None
+        target_area = None
+        target_region = None
+
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == self.editor_type:
+                    target_window = window
+                    target_area = area
+                    for region in area.regions:
+                        if region.type == 'UI':
+                            target_region = region
+                            break
+                    if target_area: break
+            if target_area: break
+
+        # Prepare kwargs for temp_override
+        override_kwargs = {}
+        if target_window and target_area:
+            override_kwargs["window"] = target_window
+            override_kwargs["area"] = target_area
+            if target_region:
+                override_kwargs["region"] = target_region
+
         tabs_set = set()
         from .common import get_all_subclasses
 
+        # Iterate through all panel classes
         for panel_cls in get_all_subclasses(bpy.types.Panel):
             try:
                 if not panel_cls.is_registered: continue
             except AttributeError:
                 if not hasattr(panel_cls, "bl_rna"): continue
 
+            # Check if the panel belongs to the target editor and UI region
             if getattr(panel_cls, "bl_space_type", None) == self.editor_type and \
                     getattr(panel_cls, "bl_region_type", None) == 'UI':
-                category = getattr(panel_cls, "bl_category", "Unknown")
-                tabs_set.add(category)
 
+                category = getattr(panel_cls, "bl_category", "Unknown")
+                is_visible = True
+
+                # Evaluate visibility using the poll() method
+                if hasattr(panel_cls, 'poll'):
+                    try:
+                        # Simulate the specific editor context to accurately test poll()
+                        if override_kwargs and hasattr(context, "temp_override"):
+                            with context.temp_override(**override_kwargs):
+                                is_visible = panel_cls.poll(context)
+                        else:
+                            is_visible = False
+                    except Exception:
+                        # Fallback to False if poll() raises an error
+                        is_visible = False
+
+                if is_visible:
+                    tabs_set.add(category)
+
+        # Store the current user-defined states
         wl_state = {item.name: item.use for item in settings.whitelist_tabs}
         bl_state = {item.name: item.use for item in settings.blacklist_tabs}
+
+        # --- NEW: Preserve currently checked tabs regardless of poll() results ---
+        # Add checked whitelist items to the set
+        for name, use in wl_state.items():
+            if use:
+                tabs_set.add(name)
+
+        # Add checked blacklist items to the set
+        for name, use in bl_state.items():
+            if use:
+                tabs_set.add(name)
+        # -----------------------------------------------------------------------
 
         settings.whitelist_tabs.clear()
         settings.blacklist_tabs.clear()
 
+        # Rebuild the lists based on the aggregated tabs_set
         for tab in sorted(tabs_set, key=lambda x: x.lower()):
             wl_item = settings.whitelist_tabs.add()
             wl_item.name = tab

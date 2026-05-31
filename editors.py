@@ -26,6 +26,10 @@ def get_dopesheet_tabs(self, context):
     tabs = get_visible_tabs(context, 'DOPESHEET_EDITOR')
     return [(t, t, "") for t in tabs] if tabs else [('NONE', 'No Tabs', '')]
 
+def get_graph_tabs(self, context):
+    tabs = get_visible_tabs(context, 'GRAPH_EDITOR')
+    return [(t, t, "") for t in tabs] if tabs else [('NONE', 'No Tabs', '')]
+
 # ------------------------------------------------------------------------
 # 1. 3D Viewport
 # ------------------------------------------------------------------------
@@ -128,10 +132,6 @@ class DOPESHEET_MT_sidebar_tab_menu(BaseSidebarTabMenu, Menu):
 # ------------------------------------------------------------------------
 # 4. Graph Editor
 # ------------------------------------------------------------------------
-def get_graph_tabs(self, context):
-    tabs = get_visible_tabs(context, 'GRAPH_EDITOR')
-    return [(t, t, "") for t in tabs] if tabs else [('NONE', 'No Tabs', '')]
-
 class GRAPH_OT_switch_sidebar_tab(BaseSwitchSidebarTabOp, Operator):
     bl_idname = "graph.switch_sidebar_tab"
     bl_label = "Switch Sidebar Tab"
