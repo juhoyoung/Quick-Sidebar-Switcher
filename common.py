@@ -85,6 +85,10 @@ def update_tabs(context, space_type):
                                 is_visible = panel_cls.poll(context)
                         except Exception:
                             is_visible = False
+                else:
+                    if category == 'Edit':
+                        # Check if Blender is currently in Edit mode
+                        is_visible = (getattr(context, "mode", "") == 'EDIT_MESH')
 
             if not is_visible: continue
 
