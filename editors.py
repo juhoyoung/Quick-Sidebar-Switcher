@@ -29,6 +29,9 @@ def get_dopesheet_tabs(self, context):
 def get_graph_tabs(self, context):
     tabs = get_visible_tabs(context, 'GRAPH_EDITOR')
     return [(t, t, "") for t in tabs] if tabs else [('NONE', 'No Tabs', '')]
+def get_image_tabs(self, context):
+    tabs = get_visible_tabs(context, 'IMAGE_EDITOR')
+    return [(t, t, "") for t in tabs] if tabs else [('NONE', 'No Tabs', '')]
 
 # ------------------------------------------------------------------------
 # 1. 3D Viewport
@@ -159,6 +162,35 @@ class GRAPH_MT_sidebar_tab_menu(BaseSidebarTabMenu, Menu):
     OP_SEARCH_NAME = "graph.sidebar_tab_search"
 
 # ------------------------------------------------------------------------
+# 5. Image / UV Editor
+# ------------------------------------------------------------------------
+class IMAGE_OT_switch_sidebar_tab(BaseSwitchSidebarTabOp, Operator):
+    bl_idname = "image.switch_sidebar_tab"
+    bl_label = "Switch Sidebar Tab"
+    SPACE_TYPE = 'IMAGE_EDITOR'
+    tab_name: StringProperty()
+
+class IMAGE_OT_sidebar_tab_menu(BaseSidebarTabMenuOp, Operator):
+    bl_idname = "image.sidebar_tab_menu"
+    bl_label = "Open Sidebar Tab (Image/UV)"
+    SPACE_TYPE = 'IMAGE_EDITOR'
+    MENU_NAME = "IMAGE_MT_sidebar_tab_menu"
+
+class IMAGE_OT_sidebar_tab_search(BaseSidebarTabSearchOp, Operator):
+    bl_idname = "image.sidebar_tab_search"
+    bl_label = "Search Sidebar Tabs"
+    bl_property = "tab_enum"
+    SPACE_TYPE = 'IMAGE_EDITOR'
+    tab_enum: EnumProperty(name="Tab", items=get_image_tabs)
+
+class IMAGE_MT_sidebar_tab_menu(BaseSidebarTabMenu, Menu):
+    bl_idname = "IMAGE_MT_sidebar_tab_menu"
+    bl_label = "Image/UV Editor Tabs"
+    SPACE_TYPE = 'IMAGE_EDITOR'
+    OP_SWITCH_NAME = "image.switch_sidebar_tab"
+    OP_SEARCH_NAME = "image.sidebar_tab_search"
+
+# ------------------------------------------------------------------------
 # Registration
 # ------------------------------------------------------------------------
 classes = (
@@ -181,6 +213,11 @@ classes = (
     GRAPH_OT_sidebar_tab_menu,
     GRAPH_OT_sidebar_tab_search,
     GRAPH_MT_sidebar_tab_menu,
+
+    IMAGE_OT_switch_sidebar_tab,
+    IMAGE_OT_sidebar_tab_menu,
+    IMAGE_OT_sidebar_tab_search,
+    IMAGE_MT_sidebar_tab_menu,
 )
 
 def register():

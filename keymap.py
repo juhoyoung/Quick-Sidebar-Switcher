@@ -31,6 +31,11 @@ def register():
         kmi_graph.active = True
         addon_keymaps.append((km_graph, kmi_graph))
 
+        # 5. Image/UV Editor
+        km_image = kc.keymaps.new(name='Image', space_type='IMAGE_EDITOR')
+        kmi_image = km_image.keymap_items.new('image.sidebar_tab_menu', 'A', 'PRESS', ctrl=True, shift=True)
+        kmi_image.active = True
+        addon_keymaps.append((km_image, kmi_image))
 
 def unregister():
     for km, kmi in addon_keymaps:

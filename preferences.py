@@ -152,6 +152,12 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
                     getattr(panel_cls, "bl_region_type", None) == 'UI':
 
                 category = getattr(panel_cls, "bl_category", "Unknown")
+
+                if not category:
+                    continue
+                if category == "Unknown":
+                    continue
+
                 is_visible = True
 
                 # Evaluate visibility using the poll() method
@@ -169,6 +175,10 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
 
                 if is_visible:
                     tabs_set.add(category)
+
+        # Inject default tabs for Graph Editor so they appear in the UI list
+        if self.editor_type == 'GRAPH_EDITOR':
+            tabs_set.update(["F-Curve", "Modifiers", "View"])
 
         # Store the current user-defined states
         wl_state = {item.name: item.use for item in settings.whitelist_tabs}
@@ -231,6 +241,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
     node_settings: PointerProperty(type=EditorFilterSettings)
     dopesheet_settings: PointerProperty(type=EditorFilterSettings)
     graph_settings: PointerProperty(type=EditorFilterSettings)
+    image_settings: PointerProperty(type=EditorFilterSettings)
 
     def get_editor_settings(self, space_type):
         """Unified dynamic mapper to fetch specific settings without code redundancy."""
@@ -238,6 +249,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         if space_type == 'NODE_EDITOR': return self.node_settings
         if space_type == 'DOPESHEET_EDITOR': return self.dopesheet_settings
         if space_type == 'GRAPH_EDITOR': return self.graph_settings
+        if space_type == 'IMAGE_EDITOR': return self.image_settings
         return None
 
     def draw(self, context):
@@ -267,6 +279,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         box.label(text="Filter Settings (Per Editor Type)", icon='FILTER')
         self.draw_editor_ui(box, self.view3d_settings, "3D View", 'VIEW_3D')
         self.draw_editor_ui(box, self.node_settings, "Node Editor", 'NODE_EDITOR')
+        self.draw_editor_ui(box, self.image_settings, "Image / UV Editor", 'IMAGE_EDITOR')
         self.draw_editor_ui(box, self.dopesheet_settings, "Dopesheet", 'DOPESHEET_EDITOR')
         self.draw_editor_ui(box, self.graph_settings, "Graph Editor", 'GRAPH_EDITOR')
 

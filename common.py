@@ -64,6 +64,12 @@ def update_tabs(context, space_type):
 
             category = getattr(panel_cls, "bl_category", "Unknown")
 
+            if not category:
+                continue
+
+            if category == "Unknown":
+                continue
+
             # Apply filter constraints
             if filter_mode == 'WHITELIST' and active_filters and category not in active_filters: continue
             if filter_mode == 'BLACKLIST' and active_filters and category in active_filters: continue
@@ -72,7 +78,7 @@ def update_tabs(context, space_type):
             is_visible = True
 
             # Bypass strict poll check for default essential tabs
-            if category not in {"Item", "Tool", "View", "Node", "Options", "Strip", "Modifiers"}:
+            if category not in {"Item", "Tool", "View", "Image"}:
                 if hasattr(panel_cls, 'poll'):
                     try:
                         is_visible = panel_cls.poll(context)
@@ -94,6 +100,16 @@ def update_tabs(context, space_type):
 
             if category not in tabs_dict or order < tabs_dict[category]:
                 tabs_dict[category] = order
+
+    # Force default tabs for Graph Editor to always appear and apply filters
+    if space_type == 'GRAPH_EDITOR':
+        for forced_tab in ["F-Curve", "Modifiers", "View"]:
+            # Check filter conditions before appending
+            if filter_mode == 'WHITELIST' and active_filters and forced_tab not in active_filters: continue
+            if filter_mode == 'BLACKLIST' and active_filters and forced_tab in active_filters: continue
+
+            if forced_tab not in tabs_dict:
+                tabs_dict[forced_tab] = 0
 
     if sort_order == 'SIDEBAR':
         sorted_tabs = [cat for cat, _ in sorted(tabs_dict.items(), key=lambda x: x[1])]
