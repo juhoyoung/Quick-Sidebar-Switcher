@@ -1,273 +1,97 @@
 # operators.py
 import bpy
-from bpy.types import Operator
-from bpy.props import StringProperty, EnumProperty
+from bpy.types import Operator, Menu
+from .common import update_tabs, get_visible_tabs, switch_tab_logic
 
-# Global list to store the tabs at the time of shortcut execution
-CURRENT_TABS = []
-
-def get_all_subclasses(cls):
-    # Set to store unique subclasses and avoid duplicates
-    subclasses = set()
-    # List acts as a stack to process subclasses iteratively
-    work_list = cls.__subclasses__()
-
-    while work_list:
-        # Pop a class from the list
-        sub = work_list.pop()
-
-        # If it's not already in our set, add it and append its children
-        if sub not in subclasses:
-            subclasses.add(sub)
-            work_list.extend(sub.__subclasses__())
-
-    return list(subclasses)
-
-def update_current_tabs(context):
-    """Reload and cache the N-panel tab list when the shortcut is executed."""
-    global CURRENT_TABS
-    CURRENT_TABS.clear()
-
-    tabs_dict = {}
-
-    try:
-        prefs = context.preferences.addons[__package__].preferences
-        sort_order = prefs.tab_sort_order
-        filter_mode = prefs.filter_mode
-        # Collect the names of checked tabs into a set
-        active_filters = {item.name for item in prefs.filter_tabs if item.use}
-    except:
-        sort_order = 'ALPHABETICAL'
-        filter_mode = 'NONE'
-        active_filters = set()
-
-    # Find the UI (N-panel) region in the current context
-    ui_region = None
-    if context.area:
-        ui_region = next((r for r in context.area.regions if r.type == 'UI'), None)
-
-    # Configure dictionary for safe temp_override
-    override_kwargs = {}
-    if getattr(context, "window", None): override_kwargs["window"] = context.window
-    if getattr(context, "area", None): override_kwargs["area"] = context.area
-    if ui_region: override_kwargs["region"] = ui_region
-
-    for panel_cls in get_all_subclasses(bpy.types.Panel):
-        # Strictly check if the class is currently registered in Blender
-        # This prevents disabled/deleted addons from appearing before a restart
-        try:
-            if not panel_cls.is_registered:
-                continue
-        except AttributeError:
-            if not hasattr(panel_cls, "bl_rna"):
-                continue
-
-        if getattr(panel_cls, "bl_space_type", None) == 'VIEW_3D' and \
-                getattr(panel_cls, "bl_region_type", None) == 'UI':
-
-            category = getattr(panel_cls, "bl_category", "Unknown")
-
-            # Apply whitelist / blacklist filtering
-            if filter_mode == 'WHITELIST' and active_filters:
-                if category not in active_filters:
-                    continue
-            elif filter_mode == 'BLACKLIST' and active_filters:
-                if category in active_filters:
-                    continue
-
-            order = getattr(panel_cls, "bl_order", 0)
-            is_visible = True
-
-            # Always include default Blender tabs (Item, Tool, View) without poll check
-            if category not in {"Item", "Tool", "View"}:
-
-                # 1. If the panel has a poll method, use it
-                if hasattr(panel_cls, 'poll'):
-                    try:
-                        # 1st attempt: Check visibility with current context
-                        is_visible = panel_cls.poll(context)
-                    except Exception:
-                        is_visible = False
-
-                    # 2nd attempt: If failed in general context, override with N-panel context and re-check
-                    if not is_visible and override_kwargs and hasattr(context, "temp_override"):
-                        try:
-                            with context.temp_override(**override_kwargs):
-                                is_visible = panel_cls.poll(context)
-                        except Exception:
-                            is_visible = False
-
-                # 2. If the panel DOES NOT have a poll method, check manually
-                else:
-                    if category == 'Edit':
-                        # Check if Blender is currently in Edit mode
-                        is_visible = (getattr(context, "mode", "") == 'EDIT_MESH')
-
-            if not is_visible:
-                continue
-
-            if category not in tabs_dict or order < tabs_dict[category]:
-                tabs_dict[category] = order
-
-    if sort_order == 'SIDEBAR':
-        sorted_tabs = [cat for cat, _ in sorted(tabs_dict.items(), key=lambda x: x[1])]
-    else:
-        sorted_tabs = sorted(tabs_dict.keys())
-
-    CURRENT_TABS.extend(sorted_tabs)
-
-
-def get_visible_sidebar_tabs(context, sort_order='ALPHABETICAL'):
-    """Return cached tab list"""
-    if not CURRENT_TABS:
-        update_current_tabs(context)
-    return CURRENT_TABS
-
-
-def get_tab_enum_items(self, context):
-    """Generate enum items for tabs"""
-    items = []
-    for i, tab in enumerate(CURRENT_TABS):
-        items.append((tab, tab, "", i))
-
-    return items if items else [('NONE', 'No Tabs', '', 0)]
-
-
-class VIEW3D_OT_switch_sidebar_tab(Operator):
-    """Switch to a specific sidebar tab"""
-    bl_idname = "view3d.switch_sidebar_tab"
-    bl_label = "Switch Sidebar Tab"
+# ------------------------------------------------------------------------
+# Base Abstract Classes (Template Factory Pattern)
+# ------------------------------------------------------------------------
+class BaseSwitchSidebarTabOp:
+    """Abstract class for switching tabs."""
     bl_options = set()
+    SPACE_TYPE = 'VIEW_3D' # To be overridden
 
-    tab_name: StringProperty()
+    # Note: tab_name: StringProperty() is removed here.
+    # Blender requires RNA properties to be declared on the registered child class.
 
     def execute(self, context):
-        area = context.area
+        return switch_tab_logic(context, self.SPACE_TYPE, self.tab_name)
 
-        if not area or area.type != 'VIEW_3D':
-            area = next((a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
-
-        if not area:
-            return {'CANCELLED'}
-
-        space = area.spaces.active
-        was_closed = not space.show_region_ui
-        tab_name = self.tab_name
-
-        if was_closed:
-            space.show_region_ui = True
-
-            def switch_delayed(area_ref, tab):
-                def inner():
-                    region = next((r for r in area_ref.regions if r.type == 'UI'), None)
-                    if not region:
-                        return None
-
-                    try:
-                        region.active_panel_category = tab
-                    except (TypeError, AttributeError):
-                        pass
-
-                    area_ref.tag_redraw()
-                    return None
-                return inner
-
-            bpy.app.timers.register(switch_delayed(area, tab_name), first_interval=0.1)
-            return {'FINISHED'}
-
-        return self.switch_tab_now(area, tab_name)
-
-    def switch_tab_now(self, area, tab_name):
-        region = next((r for r in area.regions if r.type == 'UI'), None)
-        if not region:
-            return {'CANCELLED'}
-
-        try:
-            region.active_panel_category = tab_name
-        except (TypeError, AttributeError) as e:
-            self.report({'WARNING'}, f"Could not switch tab: {tab_name}")
-            return {'CANCELLED'}
-
-        area.tag_redraw()
-        return {'FINISHED'}
-
-
-class VIEW3D_OT_sidebar_tab_menu(Operator):
-    """Open a popup menu to select a sidebar tab"""
-    bl_idname = "view3d.sidebar_tab_menu"
-    bl_label = "Open Sidebar Tab"
+class BaseSidebarTabMenuOp:
+    """Abstract class for opening the popup menu."""
+    SPACE_TYPE = 'VIEW_3D' # To be overridden
+    MENU_NAME = ""         # To be overridden
 
     def invoke(self, context, event):
-        # Force refresh the tab list when the shortcut is executed.
-        update_current_tabs(context)
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_sidebar_tab_menu")
+        update_tabs(context, self.SPACE_TYPE)
+        bpy.ops.wm.call_menu(name=self.MENU_NAME)
         return {'FINISHED'}
 
-
-class VIEW3D_OT_sidebar_tab_search(Operator):
-    """Search and select a sidebar tab"""
-    bl_idname = "view3d.sidebar_tab_search"
-    bl_label = "Search Sidebar Tabs"
+class BaseSidebarTabSearchOp:
+    """Abstract class for searching tabs via popup."""
     bl_options = set()
     bl_property = "tab_enum"
+    SPACE_TYPE = 'VIEW_3D' # To be overridden
 
-    tab_enum: EnumProperty(
-        name="Tab",
-        description="Select a sidebar tab",
-        items=get_tab_enum_items,
-    )
+    # Note: tab_enum: EnumProperty() is also removed here for the same reason.
 
     @classmethod
     def poll(cls, context):
-        return context.area and context.area.type == 'VIEW_3D'
+        return context.area and context.area.type == cls.SPACE_TYPE
 
     def execute(self, context):
         if self.tab_enum and self.tab_enum != 'NONE':
-            area = context.area
-            if not area or area.type != 'VIEW_3D':
-                area = next((a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
-
-            if not area:
-                return {'CANCELLED'}
-
-            space = area.spaces.active
-            was_closed = not space.show_region_ui
-            selected_tab = self.tab_enum
-
-            if was_closed:
-                space.show_region_ui = True
-                def switch_after_open(area_ref, tab_name):
-                    def inner():
-                        region = next((r for r in area_ref.regions if r.type == 'UI'), None)
-                        if region:
-                            try:
-                                region.active_panel_category = tab_name
-                                area_ref.tag_redraw()
-                            except:
-                                pass
-                        return None
-                    return inner
-
-                bpy.app.timers.register(switch_after_open(area, selected_tab), first_interval=0.1)
-            else:
-                region = next((r for r in area.regions if r.type == 'UI'), None)
-                if region:
-                    try:
-                        region.active_panel_category = selected_tab
-                        area.tag_redraw()
-                    except:
-                        pass
-
+            return switch_tab_logic(context, self.SPACE_TYPE, self.tab_enum)
         return {'FINISHED'}
 
     def invoke(self, context, event):
         context.window_manager.invoke_search_popup(self)
         return {'CANCELLED'}
 
+class BaseSidebarTabMenu:
+    """Abstract class for drawing the uniform menu interface."""
+    SPACE_TYPE = 'VIEW_3D'       # To be overridden
+    OP_SWITCH_NAME = ""          # To be overridden
+    OP_SEARCH_NAME = ""          # To be overridden
 
-class VIEW3D_OT_open_addon_prefs(Operator):
+    def draw(self, context):
+        layout = self.layout
+        top_col = layout.column()
+
+        top_col.operator("wm.open_sidebar_switcher_prefs", text="Open Settings", icon='PREFERENCES')
+        top_col.operator_context = 'INVOKE_DEFAULT'
+        top_col.operator(self.OP_SEARCH_NAME, text="Search Tabs...", icon='VIEWZOOM')
+        top_col.separator()
+
+        try:
+            prefs = context.preferences.addons[__package__].preferences
+            sort_order = prefs.tab_sort_order
+            columns = prefs.popup_columns
+        except Exception:
+            sort_order = 'ALPHABETICAL'
+            columns = 2
+
+        tabs = get_visible_tabs(context, self.SPACE_TYPE, sort_order)
+
+        if not tabs:
+            layout.label(text="No Sidebar Tabs Found")
+        else:
+            if columns > 1:
+                flow = layout.column_flow(columns=columns)
+                for tab in tabs:
+                    op = flow.operator(self.OP_SWITCH_NAME, text=tab)
+                    op.tab_name = tab
+            else:
+                for tab in tabs:
+                    op = layout.operator(self.OP_SWITCH_NAME, text=tab)
+                    op.tab_name = tab
+
+# ------------------------------------------------------------------------
+# Global Shared Operator
+# ------------------------------------------------------------------------
+class WM_OT_open_sidebar_switcher_prefs(Operator):
     """Open Preferences for Quick Sidebar Switcher"""
-    bl_idname = "view3d.open_sidebar_switcher_prefs"
+    bl_idname = "wm.open_sidebar_switcher_prefs"
     bl_label = "Open Settings"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -278,62 +102,12 @@ class VIEW3D_OT_open_addon_prefs(Operator):
         return {'FINISHED'}
 
 
-class VIEW3D_MT_sidebar_tab_menu(bpy.types.Menu):
-    bl_label = "Sidebar Tabs"
-    bl_idname = "VIEW3D_MT_sidebar_tab_menu"
-
-    def draw(self, context):
-        layout = self.layout
-
-        # Use column to firmly fix the top layout and separate buttons into individual rows
-        top_col = layout.column()
-
-        # First row: Preferences button
-        top_col.operator("view3d.open_sidebar_switcher_prefs", text="Open Settings", icon='PREFERENCES')
-
-        # Second row: Search tab
-        top_col.operator_context = 'INVOKE_DEFAULT'
-        top_col.operator("view3d.sidebar_tab_search", text="Search Tabs...", icon='VIEWZOOM')
-
-        top_col.separator()
-
-        try:
-            prefs = context.preferences.addons[__package__].preferences
-            sort_order = prefs.tab_sort_order
-            columns = prefs.popup_columns
-        except:
-            sort_order = 'ALPHABETICAL'
-            columns = 2
-
-        tabs = get_visible_sidebar_tabs(context, sort_order)
-
-        if not tabs:
-            layout.label(text="No Sidebar Tabs Found")
-        else:
-            # Multi-column layout
-            if columns > 1:
-                flow = layout.column_flow(columns=columns)
-                for tab in tabs:
-                    op = flow.operator("view3d.switch_sidebar_tab", text=tab)
-                    op.tab_name = tab
-            else:
-                for tab in tabs:
-                    op = layout.operator("view3d.switch_sidebar_tab", text=tab)
-                    op.tab_name = tab
-
-
 classes = (
-    VIEW3D_OT_switch_sidebar_tab,
-    VIEW3D_OT_sidebar_tab_menu,
-    VIEW3D_OT_sidebar_tab_search,
-    VIEW3D_OT_open_addon_prefs,
-    VIEW3D_MT_sidebar_tab_menu,
+    WM_OT_open_sidebar_switcher_prefs,
 )
 
 def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
+    for cls in classes: bpy.utils.register_class(cls)
 
 def unregister():
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+    for cls in reversed(classes): bpy.utils.unregister_class(cls)
