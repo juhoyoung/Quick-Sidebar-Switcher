@@ -147,7 +147,7 @@ def update_tabs(context, space_type):
 
 def get_visible_tabs(context, space_type):
     """Return the cached tab list, or update it if empty."""
-    if space_type not in CACHED_TABS or not CACHED_TABS[space_type]:
+    if space_type not in CACHED_TABS:
         update_tabs(context, space_type)
     return CACHED_TABS.get(space_type, [])
 
