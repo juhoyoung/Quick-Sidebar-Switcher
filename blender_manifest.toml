@@ -1,11 +1,11 @@
 schema_version = "1.0.0"
 id = "quick_sidebar_switcher"
-version = "1.4.0"
+version = "1.4.1"
 name = "Quick Sidebar Switcher"
 tagline = "Quickly switch between Side Panel tabs with a popup menu"
 maintainer = "hyeffect55 <hyeffect55@gmail.com>"
 type = "add-on"
-wetsite = "https://github.com/juhoyoung/Quick-Sidebar-Switcher"
+website = "https://github.com/juhoyoung/Quick-Sidebar-Switcher"
 support = "https://github.com/juhoyoung/Quick-Sidebar-Switcher/issues/new"
 tags = ["User Interface"]
 
@@ -18,5 +18,6 @@ paths_exclude_pattern = [
   "__pycache__/",
   ".*",
   "*.zip",
-  "*.sh"
-]
+  "*.sh",
+  "*.bat"
+  ]

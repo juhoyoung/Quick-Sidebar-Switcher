@@ -3,6 +3,8 @@ import bpy
 from bpy.types import AddonPreferences, Operator, PropertyGroup
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty, PointerProperty
 
+from .common import discover_sidebar_tabs
+
 # ------------------------------------------------------------------------
 # UI Drawing Functions
 # ------------------------------------------------------------------------
@@ -14,7 +16,16 @@ def get_user_kmi_from_addon_kmi(addon_km, addon_kmi, kc_user):
                 return user_km, user_kmi
     return None, None
 
-def draw_kmi(kmi, layout):
+KEYMAP_DISPLAY_NAMES = {
+    'VIEW_3D': "Open Sidebar Tabs (3D View)",
+    'NODE_EDITOR': "Open Sidebar Tabs (Node Editor)",
+    'DOPESHEET_EDITOR': "Open Sidebar Tabs (Dopesheet)",
+    'GRAPH_EDITOR': "Open Sidebar Tabs (Graph Editor)",
+    'IMAGE_EDITOR': "Open Sidebar Tabs (Image / UV Editor)",
+}
+
+
+def draw_kmi(kmi, layout, display_name=None):
     map_type = kmi.map_type
     col = layout.column()
     if kmi.show_expanded:
@@ -29,7 +40,7 @@ def draw_kmi(kmi, layout):
     row.prop(kmi, "show_expanded", text="", emboss=False)
     row.prop(kmi, "active", text="", emboss=False)
 
-    name = kmi.name if kmi.name else "Quick Sidebar Switcher"
+    name = display_name or kmi.name or "Quick Sidebar Switcher"
     row.label(text=name)
 
     row = split.row()
@@ -137,44 +148,12 @@ class PREFERENCES_OT_refresh_tab_filters(Operator):
             if target_region:
                 override_kwargs["region"] = target_region
 
-        tabs_set = set()
-        from .common import get_all_subclasses
-
-        # Iterate through all panel classes
-        for panel_cls in get_all_subclasses(bpy.types.Panel):
-            try:
-                if not panel_cls.is_registered: continue
-            except AttributeError:
-                if not hasattr(panel_cls, "bl_rna"): continue
-
-            # Check if the panel belongs to the target editor and UI region
-            if getattr(panel_cls, "bl_space_type", None) == self.editor_type and \
-                    getattr(panel_cls, "bl_region_type", None) == 'UI':
-
-                category = getattr(panel_cls, "bl_category", "Unknown")
-
-                if not category:
-                    continue
-                if category == "Unknown":
-                    continue
-
-                is_visible = True
-
-                # Evaluate visibility using the poll() method
-                if hasattr(panel_cls, 'poll'):
-                    try:
-                        # Simulate the specific editor context to accurately test poll()
-                        if override_kwargs and hasattr(context, "temp_override"):
-                            with context.temp_override(**override_kwargs):
-                                is_visible = panel_cls.poll(context)
-                        else:
-                            is_visible = False
-                    except Exception:
-                        # Fallback to False if poll() raises an error
-                        is_visible = False
-
-                if is_visible:
-                    tabs_set.add(category)
+        tabs_set = set(discover_sidebar_tabs(
+            context,
+            self.editor_type,
+            override_kwargs=override_kwargs,
+            poll_current_context=False,
+        ))
 
         # Inject default tabs for Graph Editor so they appear in the UI list
         if self.editor_type == 'GRAPH_EDITOR':
@@ -267,7 +246,8 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
             user_km, user_kmi = get_user_kmi_from_addon_kmi(km_add, kmi_add, kc)
             if user_km and user_kmi:
                 box.context_pointer_set("keymap", user_km)
-                draw_kmi(user_kmi, box)
+                display_name = KEYMAP_DISPLAY_NAMES.get(km_add.space_type)
+                draw_kmi(user_kmi, box, display_name)
                 found_kmi = True
         if not found_kmi:
             box.label(text="Keymap is not loaded yet. Try restarting Blender.", icon='INFO')

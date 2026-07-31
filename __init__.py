@@ -2,7 +2,7 @@
 bl_info = {
     "name": "Quick Sidebar Switcher",
     "author": "hyeffect55",
-    "version": (1, 4, 0),
+    "version": (1, 4, 1),
     "blender": (5, 0, 1),
     "location": "3D Viewport > Ctrl+Shift+A",
     "description": "Quickly switch between Side Panel tabs with a popup menu",

@@ -6,24 +6,42 @@ from .common import update_tabs, get_visible_tabs, switch_tab_logic
 # ------------------------------------------------------------------------
 # Base Abstract Classes (Template Factory Pattern)
 # ------------------------------------------------------------------------
+def resolve_space_type(cls, context):
+    if cls.SPACE_TYPE:
+        return cls.SPACE_TYPE
+
+    space_type = getattr(context.area, "type", None)
+    if cls.SPACE_TYPES and space_type in cls.SPACE_TYPES:
+        return space_type
+    return None
+
+
 class BaseSwitchSidebarTabOp:
     """Abstract class for switching tabs."""
     bl_options = set()
-    SPACE_TYPE = 'VIEW_3D' # To be overridden
+    SPACE_TYPE = None
+    SPACE_TYPES = None
 
-    # Note: tab_name: StringProperty() is removed here.
-    # Blender requires RNA properties to be declared on the registered child class.
+    get_space_type = classmethod(resolve_space_type)
 
     def execute(self, context):
-        return switch_tab_logic(context, self.SPACE_TYPE, self.tab_name)
+        space_type = self.get_space_type(context)
+        if not space_type:
+            return {'CANCELLED'}
+        return switch_tab_logic(context, space_type, self.tab_name)
 
 class BaseSidebarTabMenuOp:
     """Abstract class for opening the popup menu."""
-    SPACE_TYPE = 'VIEW_3D' # To be overridden
-    MENU_NAME = ""         # To be overridden
+    SPACE_TYPE = None
+    SPACE_TYPES = None
+    MENU_NAME = ""
 
     def invoke(self, context, event):
-        update_tabs(context, self.SPACE_TYPE)
+        space_type = resolve_space_type(self.__class__, context)
+        if not space_type:
+            return {'CANCELLED'}
+
+        update_tabs(context, space_type)
         bpy.ops.wm.call_menu(name=self.MENU_NAME)
         return {'FINISHED'}
 
@@ -31,28 +49,36 @@ class BaseSidebarTabSearchOp:
     """Abstract class for searching tabs via popup."""
     bl_options = set()
     bl_property = "tab_enum"
-    SPACE_TYPE = 'VIEW_3D' # To be overridden
+    SPACE_TYPE = None
+    SPACE_TYPES = None
 
-    # Note: tab_enum: EnumProperty() is also removed here for the same reason.
+    get_space_type = classmethod(resolve_space_type)
 
     @classmethod
     def poll(cls, context):
-        return context.area and context.area.type == cls.SPACE_TYPE
+        return bool(cls.get_space_type(context))
 
     def execute(self, context):
+        space_type = self.get_space_type(context)
+        if not space_type:
+            return {'CANCELLED'}
+
         if self.tab_enum and self.tab_enum != 'NONE':
-            return switch_tab_logic(context, self.SPACE_TYPE, self.tab_enum)
+            return switch_tab_logic(context, space_type, self.tab_enum)
         return {'FINISHED'}
 
     def invoke(self, context, event):
         context.window_manager.invoke_search_popup(self)
-        return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
 
 class BaseSidebarTabMenu:
     """Abstract class for drawing the uniform menu interface."""
-    SPACE_TYPE = 'VIEW_3D'       # To be overridden
-    OP_SWITCH_NAME = ""          # To be overridden
-    OP_SEARCH_NAME = ""          # To be overridden
+    SPACE_TYPE = None
+    SPACE_TYPES = None
+    OP_SWITCH_NAME = ""
+    OP_SEARCH_NAME = ""
+
+    get_space_type = classmethod(resolve_space_type)
 
     def draw(self, context):
         layout = self.layout
@@ -65,13 +91,12 @@ class BaseSidebarTabMenu:
 
         try:
             prefs = context.preferences.addons[__package__].preferences
-            sort_order = prefs.tab_sort_order
             columns = prefs.popup_columns
         except Exception:
-            sort_order = 'ALPHABETICAL'
             columns = 2
 
-        tabs = get_visible_tabs(context, self.SPACE_TYPE, sort_order)
+        space_type = self.get_space_type(context)
+        tabs = get_visible_tabs(context, space_type) if space_type else []
 
         if not tabs:
             layout.label(text="No Sidebar Tabs Found")
