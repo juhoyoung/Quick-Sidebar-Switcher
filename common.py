@@ -17,10 +17,68 @@ def get_all_subclasses(cls):
 
     return list(subclasses)
 
+
+def discover_sidebar_tabs(
+        context,
+        space_type,
+        override_kwargs=None,
+        poll_current_context=True,
+        bypass_poll_categories=None,
+        use_edit_mode_fallback=False,
+):
+    """Discover visible sidebar categories and their minimum panel order."""
+    override_kwargs = override_kwargs or {}
+    bypass_poll_categories = bypass_poll_categories or set()
+    tabs_dict = {}
+
+    for panel_cls in get_all_subclasses(bpy.types.Panel):
+        try:
+            if not panel_cls.is_registered:
+                continue
+        except AttributeError:
+            if not hasattr(panel_cls, "bl_rna"):
+                continue
+
+        if (getattr(panel_cls, "bl_space_type", None) != space_type or
+                getattr(panel_cls, "bl_region_type", None) != 'UI'):
+            continue
+
+        category = getattr(panel_cls, "bl_category", "Unknown")
+        if not category or category == "Unknown":
+            continue
+
+        is_visible = True
+        if category not in bypass_poll_categories:
+            if hasattr(panel_cls, 'poll'):
+                is_visible = False
+
+                if poll_current_context:
+                    try:
+                        is_visible = panel_cls.poll(context)
+                    except Exception:
+                        is_visible = False
+
+                if not is_visible and override_kwargs and hasattr(context, "temp_override"):
+                    try:
+                        with context.temp_override(**override_kwargs):
+                            is_visible = panel_cls.poll(context)
+                    except Exception:
+                        is_visible = False
+            elif use_edit_mode_fallback and category == 'Edit':
+                is_visible = (getattr(context, "mode", "") == 'EDIT_MESH')
+
+        if not is_visible:
+            continue
+
+        order = getattr(panel_cls, "bl_order", 0)
+        if category not in tabs_dict or order < tabs_dict[category]:
+            tabs_dict[category] = order
+
+    return tabs_dict
+
 def update_tabs(context, space_type):
     """Reload and cache the N-panel tab list for a specific space type."""
     CACHED_TABS[space_type] = []
-    tabs_dict = {}
 
     try:
         prefs = context.preferences.addons[__package__].preferences
@@ -53,59 +111,27 @@ def update_tabs(context, space_type):
     ui_region = next((r for r in getattr(context.area, "regions", []) if r.type == 'UI'), None)
     if ui_region: override_kwargs["region"] = ui_region
 
-    for panel_cls in get_all_subclasses(bpy.types.Panel):
-        try:
-            if not panel_cls.is_registered: continue
-        except AttributeError:
-            if not hasattr(panel_cls, "bl_rna"): continue
+    tabs_dict = discover_sidebar_tabs(
+        context,
+        space_type,
+        override_kwargs=override_kwargs,
+        bypass_poll_categories={"Item", "Tool", "View", "Image"},
+        use_edit_mode_fallback=True,
+    )
 
-        if getattr(panel_cls, "bl_space_type", None) == space_type and \
-                getattr(panel_cls, "bl_region_type", None) == 'UI':
-
-            category = getattr(panel_cls, "bl_category", "Unknown")
-
-            if not category:
-                continue
-
-            if category == "Unknown":
-                continue
-
-            # Apply filter constraints
-            if filter_mode == 'WHITELIST' and active_filters and category not in active_filters: continue
-            if filter_mode == 'BLACKLIST' and active_filters and category in active_filters: continue
-
-            order = getattr(panel_cls, "bl_order", 0)
-            is_visible = True
-
-            # Bypass strict poll check for default essential tabs
-            if category not in {"Item", "Tool", "View", "Image"}:
-                if hasattr(panel_cls, 'poll'):
-                    try:
-                        is_visible = panel_cls.poll(context)
-                    except Exception:
-                        is_visible = False
-
-                    if not is_visible and override_kwargs and hasattr(context, "temp_override"):
-                        try:
-                            with context.temp_override(**override_kwargs):
-                                is_visible = panel_cls.poll(context)
-                        except Exception:
-                            is_visible = False
-                else:
-                    if category == 'Edit':
-                        # Check if Blender is currently in Edit mode
-                        is_visible = (getattr(context, "mode", "") == 'EDIT_MESH')
-
-            if not is_visible: continue
-
-            if category not in tabs_dict or order < tabs_dict[category]:
-                tabs_dict[category] = order
+    # Apply filter constraints after discovering the available categories
+    if filter_mode == 'WHITELIST':
+        tabs_dict = {category: order for category, order in tabs_dict.items()
+                     if category in active_filters}
+    elif filter_mode == 'BLACKLIST' and active_filters:
+        tabs_dict = {category: order for category, order in tabs_dict.items()
+                     if category not in active_filters}
 
     # Force default tabs for Graph Editor to always appear and apply filters
     if space_type == 'GRAPH_EDITOR':
         for forced_tab in ["F-Curve", "Modifiers", "View"]:
             # Check filter conditions before appending
-            if filter_mode == 'WHITELIST' and active_filters and forced_tab not in active_filters: continue
+            if filter_mode == 'WHITELIST' and forced_tab not in active_filters: continue
             if filter_mode == 'BLACKLIST' and active_filters and forced_tab in active_filters: continue
 
             if forced_tab not in tabs_dict:
@@ -119,11 +145,60 @@ def update_tabs(context, space_type):
     CACHED_TABS[space_type].extend(sorted_tabs)
 
 
-def get_visible_tabs(context, space_type, sort_order='ALPHABETICAL'):
+def get_visible_tabs(context, space_type):
     """Return the cached tab list, or update it if empty."""
-    if space_type not in CACHED_TABS or not CACHED_TABS[space_type]:
+    if space_type not in CACHED_TABS:
         update_tabs(context, space_type)
     return CACHED_TABS.get(space_type, [])
+
+
+def get_popup_panels(context, space_type, tab_name):
+    """Return registered top-level panels; Blender draws their children itself."""
+    panels = []
+    for panel in get_all_subclasses(bpy.types.Panel):
+        if not getattr(panel, 'is_registered', False):
+            continue
+        if (getattr(panel, 'bl_space_type', None) != space_type
+                or getattr(panel, 'bl_region_type', None) != 'UI'
+                or getattr(panel, 'bl_category', '') != tab_name
+                or getattr(panel, 'bl_parent_id', '')):
+            continue
+        try:
+            if hasattr(panel, 'poll') and not panel.poll(context):
+                continue
+        except Exception:
+            continue
+        panels.append(panel)
+    return sorted(panels, key=lambda panel: (
+        getattr(panel, 'bl_order', 0), panel.bl_rna.identifier,
+    ))
+
+
+def open_sidebar_tab_popup(context, space_type, tab_name):
+    """Use native panel popovers to preserve external panels' draw context."""
+    if not context.area or context.area.type != space_type:
+        return {'CANCELLED'}
+    panels = get_popup_panels(context, space_type, tab_name)
+    if not panels:
+        return {'CANCELLED'}
+
+    if len(panels) == 1:
+        return bpy.ops.wm.call_panel(
+            'INVOKE_DEFAULT', name=panels[0].bl_rna.identifier, keep_open=True,
+        )
+
+    # A category can contain several independent roots, each with its own children.
+    panel_items = tuple((panel.bl_rna.identifier, panel.bl_label) for panel in panels)
+
+    def draw_panel_choices(self, popup_context):
+        self.layout.operator_context = 'INVOKE_DEFAULT'
+        for panel_id, label in panel_items:
+            operator = self.layout.operator('wm.call_panel', text=label)
+            operator.name = panel_id
+            operator.keep_open = True
+
+    context.window_manager.popup_menu(draw_panel_choices, title=tab_name)
+    return {'FINISHED'}
 
 
 def switch_tab_logic(context, space_type, tab_name):
