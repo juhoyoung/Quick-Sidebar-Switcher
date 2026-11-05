@@ -58,8 +58,8 @@ def draw_kmi(kmi, layout, display_name=None):
     else:
         row.label()
 
-    fixed_icon = 'OPTIONS' if bpy.app.version >= (4, 3, 0) else 'REMOVE'
-    row.prop(kmi, "active", text="", icon=fixed_icon if kmi.active else 'TRACKING_CLEAR_BACKWARDS', emboss=False)
+    if not kmi.is_user_defined and kmi.is_user_modified:
+        row.operator("preferences.keyitem_restore", text="", icon='BACK').item_id = kmi.id
 
     if kmi.show_expanded:
         split = box.split(factor=0.5)
@@ -97,28 +97,6 @@ def draw_kmi(kmi, layout, display_name=None):
 # ------------------------------------------------------------------------
 # Structural Property Groups
 # ------------------------------------------------------------------------
-class PREFERENCES_OT_restore_sidebar_shortcuts(Operator):
-    """Restore the tab menu and panel popup shortcuts to their defaults"""
-    bl_idname = "preferences.restore_sidebar_switcher_shortcuts"
-    bl_label = "Restore Default Shortcuts"
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_confirm(self, event)
-
-    def execute(self, context):
-        from . import keymap
-
-        if not keymap.restore_default_shortcuts(context):
-            self.report({'WARNING'}, "Add-on keymaps are not available yet")
-            return {'CANCELLED'}
-
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'PREFERENCES':
-                    area.tag_redraw()
-        return {'FINISHED'}
-
-
 class SidebarTabFilterItem(PropertyGroup):
     name: StringProperty()
     use: BoolProperty(default=False)
@@ -259,26 +237,26 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         # 1. Keymap Settings
         box = layout.box()
         box.label(text="Keymap Settings:", icon='KEYINGSET')
-        row = box.row()
-        row.operator_context = 'INVOKE_DEFAULT'
-        row.operator("preferences.restore_sidebar_switcher_shortcuts", icon='LOOP_BACK')
         from . import keymap
         wm = context.window_manager
         kc = wm.keyconfigs.user
 
         found_kmi = False
         for km_add, kmi_add in keymap.addon_keymaps:
+            entry = box.column()
+            is_popup_keymap = km_add.name == keymap.POPUP_KEYMAP_NAME
             user_km, user_kmi = get_user_kmi_from_addon_kmi(km_add, kmi_add, kc)
             if user_km and user_kmi:
-                box.context_pointer_set("keymap", user_km)
+                entry.context_pointer_set("keymap", user_km)
                 display_name = KEYMAP_DISPLAY_NAMES.get(km_add.space_type)
-                draw_kmi(user_kmi, box, display_name)
+                draw_kmi(user_kmi, entry, display_name)
                 found_kmi = True
             else:
-                display_name = KEYMAP_DISPLAY_NAMES.get(km_add.space_type, km_add.name)
-                box.label(text=f"{display_name}: shortcut missing", icon='INFO')
+                display_name = kmi_add.name if is_popup_keymap else KEYMAP_DISPLAY_NAMES.get(km_add.space_type, km_add.name)
+                entry.label(text=f"{display_name}: shortcut missing", icon='INFO')
+
         if not found_kmi:
-            box.label(text="Use Restore Default Shortcuts to recover missing shortcuts.", icon='INFO')
+            box.label(text="No shortcuts found in the user keymap.", icon='INFO')
 
         layout.separator()
 
@@ -329,7 +307,6 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
                     box.label(text="Click 'Fetch Current Tabs' to load available tabs.", icon='INFO')
 
 classes = (
-    PREFERENCES_OT_restore_sidebar_shortcuts,
     SidebarTabFilterItem,
     EditorFilterSettings,
     PREFERENCES_OT_refresh_tab_filters,
