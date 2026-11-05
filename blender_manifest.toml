@@ -19,5 +19,6 @@ paths_exclude_pattern = [
   ".*",
   "*.zip",
   "*.sh",
-  "*.bat"
+  "*.bat",
+  "tests/"
   ]

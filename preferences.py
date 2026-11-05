@@ -97,6 +97,28 @@ def draw_kmi(kmi, layout, display_name=None):
 # ------------------------------------------------------------------------
 # Structural Property Groups
 # ------------------------------------------------------------------------
+class PREFERENCES_OT_restore_sidebar_shortcuts(Operator):
+    """Restore all five Quick Sidebar Switcher shortcuts to Ctrl+Shift+A"""
+    bl_idname = "preferences.restore_sidebar_switcher_shortcuts"
+    bl_label = "Restore Default Shortcuts"
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        from . import keymap
+
+        if not keymap.restore_default_shortcuts(context):
+            self.report({'WARNING'}, "Add-on keymaps are not available yet")
+            return {'CANCELLED'}
+
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'PREFERENCES':
+                    area.tag_redraw()
+        return {'FINISHED'}
+
+
 class SidebarTabFilterItem(PropertyGroup):
     name: StringProperty()
     use: BoolProperty(default=False)
@@ -237,6 +259,9 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
         # 1. Keymap Settings
         box = layout.box()
         box.label(text="Keymap Settings:", icon='KEYINGSET')
+        row = box.row()
+        row.operator_context = 'INVOKE_DEFAULT'
+        row.operator("preferences.restore_sidebar_switcher_shortcuts", icon='LOOP_BACK')
         from . import keymap
         wm = context.window_manager
         kc = wm.keyconfigs.user
@@ -249,8 +274,11 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
                 display_name = KEYMAP_DISPLAY_NAMES.get(km_add.space_type)
                 draw_kmi(user_kmi, box, display_name)
                 found_kmi = True
+            else:
+                display_name = KEYMAP_DISPLAY_NAMES.get(km_add.space_type, km_add.name)
+                box.label(text=f"{display_name}: shortcut missing", icon='INFO')
         if not found_kmi:
-            box.label(text="Keymap is not loaded yet. Try restarting Blender.", icon='INFO')
+            box.label(text="Use Restore Default Shortcuts to recover missing shortcuts.", icon='INFO')
 
         layout.separator()
 
@@ -301,6 +329,7 @@ class QuickSidebarSwitcherPreferences(AddonPreferences):
                     box.label(text="Click 'Fetch Current Tabs' to load available tabs.", icon='INFO')
 
 classes = (
+    PREFERENCES_OT_restore_sidebar_shortcuts,
     SidebarTabFilterItem,
     EditorFilterSettings,
     PREFERENCES_OT_refresh_tab_filters,

@@ -2,6 +2,46 @@ import bpy
 
 addon_keymaps = []
 
+
+def restore_default_shortcuts(context):
+    """Restore only this add-on's shortcuts, including deleted user items."""
+    wm = context.window_manager
+    wm.keyconfigs.update()
+    kc_user = wm.keyconfigs.user
+    if kc_user is None or not addon_keymaps:
+        return False
+
+    for addon_km, addon_kmi in addon_keymaps:
+        user_km = kc_user.keymaps.get(addon_km.name)
+        if user_km is None:
+            user_km = kc_user.keymaps.new(
+                name=addon_km.name,
+                space_type=addon_km.space_type,
+                region_type=addon_km.region_type,
+            )
+
+        matches = [
+            item for item in user_km.keymap_items
+            if item.idname == addon_kmi.idname
+        ]
+        if not matches:
+            matches = [user_km.keymap_items.new(
+                addon_kmi.idname, addon_kmi.type, addon_kmi.value,
+            )]
+
+        for item in matches:
+            # Copy the registered defaults without resetting unrelated shortcuts.
+            for attribute in (
+                'map_type', 'type', 'value', 'any', 'shift', 'ctrl',
+                'alt', 'oskey', 'key_modifier', 'direction', 'repeat', 'active',
+            ):
+                setattr(item, attribute, getattr(addon_kmi, attribute))
+
+    context.preferences.is_dirty = True
+    wm.keyconfigs.update()
+    return True
+
+
 def register():
     wm = bpy.context.window_manager
     kc = wm.keyconfigs.addon
