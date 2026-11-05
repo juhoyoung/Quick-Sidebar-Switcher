@@ -1,0 +1,7 @@
+.idea
+copy_script.sh
+.gitignore
+.description
+*.zip
+__pycache__
+/tests/
