@@ -98,7 +98,7 @@ def draw_kmi(kmi, layout, display_name=None):
 # Structural Property Groups
 # ------------------------------------------------------------------------
 class PREFERENCES_OT_restore_sidebar_shortcuts(Operator):
-    """Restore all five Quick Sidebar Switcher shortcuts to Ctrl+Shift+A"""
+    """Restore the tab menu and panel popup shortcuts to their defaults"""
     bl_idname = "preferences.restore_sidebar_switcher_shortcuts"
     bl_label = "Restore Default Shortcuts"
 

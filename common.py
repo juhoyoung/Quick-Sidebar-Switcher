@@ -152,6 +152,55 @@ def get_visible_tabs(context, space_type):
     return CACHED_TABS.get(space_type, [])
 
 
+def get_popup_panels(context, space_type, tab_name):
+    """Return registered top-level panels; Blender draws their children itself."""
+    panels = []
+    for panel in get_all_subclasses(bpy.types.Panel):
+        if not getattr(panel, 'is_registered', False):
+            continue
+        if (getattr(panel, 'bl_space_type', None) != space_type
+                or getattr(panel, 'bl_region_type', None) != 'UI'
+                or getattr(panel, 'bl_category', '') != tab_name
+                or getattr(panel, 'bl_parent_id', '')):
+            continue
+        try:
+            if hasattr(panel, 'poll') and not panel.poll(context):
+                continue
+        except Exception:
+            continue
+        panels.append(panel)
+    return sorted(panels, key=lambda panel: (
+        getattr(panel, 'bl_order', 0), panel.bl_rna.identifier,
+    ))
+
+
+def open_sidebar_tab_popup(context, space_type, tab_name):
+    """Use native panel popovers to preserve external panels' draw context."""
+    if not context.area or context.area.type != space_type:
+        return {'CANCELLED'}
+    panels = get_popup_panels(context, space_type, tab_name)
+    if not panels:
+        return {'CANCELLED'}
+
+    if len(panels) == 1:
+        return bpy.ops.wm.call_panel(
+            'INVOKE_DEFAULT', name=panels[0].bl_rna.identifier, keep_open=True,
+        )
+
+    # A category can contain several independent roots, each with its own children.
+    panel_items = tuple((panel.bl_rna.identifier, panel.bl_label) for panel in panels)
+
+    def draw_panel_choices(self, popup_context):
+        self.layout.operator_context = 'INVOKE_DEFAULT'
+        for panel_id, label in panel_items:
+            operator = self.layout.operator('wm.call_panel', text=label)
+            operator.name = panel_id
+            operator.keep_open = True
+
+    context.window_manager.popup_menu(draw_panel_choices, title=tab_name)
+    return {'FINISHED'}
+
+
 def switch_tab_logic(context, space_type, tab_name):
     """Core logic to reveal the sidebar and switch active category."""
     area = context.area

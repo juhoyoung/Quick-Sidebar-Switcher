@@ -1,7 +1,7 @@
 # operators.py
 import bpy
 from bpy.types import Operator, Menu
-from .common import update_tabs, get_visible_tabs, switch_tab_logic
+from .common import update_tabs, get_visible_tabs, switch_tab_logic, open_sidebar_tab_popup
 
 # ------------------------------------------------------------------------
 # Base Abstract Classes (Template Factory Pattern)
@@ -23,6 +23,26 @@ class BaseSwitchSidebarTabOp:
     SPACE_TYPES = None
 
     get_space_type = classmethod(resolve_space_type)
+
+    @classmethod
+    def description(cls, context, properties):
+        from .keymap import get_popup_shortcut
+
+        _, shortcut = get_popup_shortcut(context)
+        description = f"Click to select the '{properties.tab_name}' sidebar tab"
+        if shortcut:
+            description += f". {shortcut.to_string()} to open its panels in a popup"
+        return description
+
+    def invoke(self, context, event):
+        from .keymap import is_popup_event
+
+        if is_popup_event(context, event):
+            space_type = self.get_space_type(context)
+            if not space_type:
+                return {'CANCELLED'}
+            return open_sidebar_tab_popup(context, space_type, self.tab_name)
+        return self.execute(context)
 
     def execute(self, context):
         space_type = self.get_space_type(context)
@@ -101,6 +121,7 @@ class BaseSidebarTabMenu:
         if not tabs:
             layout.label(text="No Sidebar Tabs Found")
         else:
+            layout.operator_context = 'INVOKE_REGION_WIN'
             if columns > 1:
                 flow = layout.column_flow(columns=columns)
                 for tab in tabs:

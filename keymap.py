@@ -1,6 +1,27 @@
 import bpy
 
 addon_keymaps = []
+POPUP_KEYMAP_NAME = 'Quick Sidebar Switcher'
+POPUP_OPERATOR_ID = 'wm.quick_sidebar_switcher_panel_popup'
+_owned_default_keymaps = []
+
+
+def get_popup_shortcut(context):
+    """Read the user binding, including edits or removal in Keymap preferences."""
+    keyconfig = context.window_manager.keyconfigs.user
+    km = keyconfig.keymaps.get(POPUP_KEYMAP_NAME) if keyconfig else None
+    if km:
+        return km, next((item for item in km.keymap_items
+                         if item.idname == POPUP_OPERATOR_ID and item.active), None)
+    return None, None
+
+
+def is_popup_event(context, event):
+    km, item = get_popup_shortcut(context)
+    if not item:
+        return False
+    match = km.keymap_items.match_event(event)
+    return match is not None and match.idname == POPUP_OPERATOR_ID and match.active
 
 
 def restore_default_shortcuts(context):
@@ -77,7 +98,23 @@ def register():
         kmi_image.active = True
         addon_keymaps.append((km_image, kmi_image))
 
+        # This map is evaluated only when selecting an item in the tab list.
+        # Do not attach it to a viewport: Ctrl+Click must retain its normal uses.
+        if wm.keyconfigs.default.keymaps.get(POPUP_KEYMAP_NAME) is None:
+            default_map = wm.keyconfigs.default.keymaps.new(
+                name=POPUP_KEYMAP_NAME, space_type='EMPTY',
+            )
+            _owned_default_keymaps.append(default_map)
+        km_popup = kc.keymaps.new(name=POPUP_KEYMAP_NAME, space_type='EMPTY')
+        kmi_popup = km_popup.keymap_items.new(
+            POPUP_OPERATOR_ID, 'LEFTMOUSE', 'ANY', ctrl=True,
+        )
+        addon_keymaps.append((km_popup, kmi_popup))
+
 def unregister():
     for km, kmi in addon_keymaps:
         km.keymap_items.remove(kmi)
     addon_keymaps.clear()
+    for km in _owned_default_keymaps:
+        bpy.context.window_manager.keyconfigs.default.keymaps.remove(km)
+    _owned_default_keymaps.clear()

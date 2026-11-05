@@ -3,7 +3,7 @@ import bpy
 from bpy.props import EnumProperty, StringProperty
 from bpy.types import Menu, Operator
 
-from .common import get_visible_tabs
+from .common import get_visible_tabs, open_sidebar_tab_popup
 from .operators import (
     BaseSidebarTabMenu,
     BaseSidebarTabMenuOp,
@@ -47,6 +47,7 @@ def get_sidebar_tabs(self, context):
 class WM_OT_switch_sidebar_tab(BaseSwitchSidebarTabOp, Operator):
     bl_idname = "wm.quick_sidebar_switcher_switch"
     bl_label = "Switch Sidebar Tab"
+    bl_description = "Select a sidebar tab; use the configured modifier-click to open a panel popup"
     SPACE_TYPES = SUPPORTED_SPACE_TYPES
 
     tab_name: StringProperty()
@@ -66,6 +67,20 @@ class WM_OT_sidebar_tab_search(BaseSidebarTabSearchOp, Operator):
     SPACE_TYPES = SUPPORTED_SPACE_TYPES
 
     tab_enum: EnumProperty(name="Tab", items=get_sidebar_tabs)
+
+
+class WM_OT_sidebar_panel_popup(Operator):
+    """Open a panel popup from the sidebar tab list using its configured shortcut"""
+    bl_idname = "wm.quick_sidebar_switcher_panel_popup"
+    bl_label = "Open Panel Popup (Tab List)"
+    bl_description = "Open a panel popup when selecting a tab with this shortcut"
+
+    tab_name: StringProperty(options={'SKIP_SAVE'})
+
+    def execute(self, context):
+        if not self.tab_name or not context.area:
+            return {'CANCELLED'}
+        return open_sidebar_tab_popup(context, context.area.type, self.tab_name)
 
 
 class WM_MT_sidebar_tab_menu(BaseSidebarTabMenu, Menu):
@@ -104,6 +119,7 @@ classes = (
     WM_OT_switch_sidebar_tab,
     WM_OT_sidebar_tab_menu,
     WM_OT_sidebar_tab_search,
+    WM_OT_sidebar_panel_popup,
     WM_MT_sidebar_tab_menu,
     *legacy_menu_classes,
 )

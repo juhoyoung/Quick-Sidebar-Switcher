@@ -37,10 +37,19 @@ try:
         items = [item for item in user_maps[km.name].keymap_items if item.idname == default.idname]
         assert len(items) == 1, (km.name, len(items))
         item = items[0]
-        assert (item.type, item.value, item.ctrl, item.shift, item.alt, item.active) == ('A', 'PRESS', 1, 1, 0, True)
+        for attribute in ('type', 'value', 'ctrl', 'shift', 'alt', 'active'):
+            assert getattr(item, attribute) == getattr(default, attribute), (km.name, attribute)
 
     other = user_maps[addon_km.name].keymap_items.from_id(other_id)
     assert other is not None and other.type == 'F8'
+
+    popup_km, popup_item = keymap.get_popup_shortcut(bpy.context)
+    assert popup_item is not None
+    popup_km.keymap_items.remove(popup_item)
+    wm.keyconfigs.update()
+    assert keymap.get_popup_shortcut(bpy.context)[1] is None
+    assert keymap.restore_default_shortcuts(bpy.context)
+    assert keymap.get_popup_shortcut(bpy.context)[1] is not None
 
     assert keymap.restore_default_shortcuts(bpy.context)
     for km, default in keymap.addon_keymaps:
